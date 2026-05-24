@@ -1,0 +1,6 @@
+{
+  "name": "Meow Code",
+  "description": "A versatile VS Code-inspired Android IDE featuring multi-file workspaces, integrated runtime terminals, Git, and Gemini API programming assistance.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

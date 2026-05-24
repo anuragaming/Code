@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+    <!-- Code Bracket: < -->
+    <path
+        android:pathData="M32,44 L22,54 L32,64"
+        android:strokeWidth="4"
+        android:strokeColor="#38BDF8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Code Bracket: > -->
+    <path
+        android:pathData="M76,44 L86,54 L76,64"
+        android:strokeWidth="4"
+        android:strokeColor="#38BDF8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
+
+    <!-- Cute Programming Cat Silhouette in the Center -->
+    <path
+        android:fillColor="#A5B4FC"
+        android:pathData="M 39,44 
+                    L 42,28 
+                    L 50,37 
+                    H 58 
+                    L 66,28 
+                    L 69,44 
+                    C 74,44 76,52 74,58 
+                    C 72,64 68,66 54,66 
+                    C 40,66 36,64 34,58 
+                    C 32,52 34,44 39,44 
+                    Z" />
+
+    <!-- Developer Glasses -->
+    <path
+        android:pathData="M40,50 L49,50 A4,4 0 0,1 45,54 A4,4 0 0,1 41,50 M59,50 L68,50 A4,4 0 0,1 64,54 A4,4 0 0,1 60,50 M48,51 H60"
+        android:strokeWidth="2.2"
+        android:strokeColor="#1E1E2E"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000" />
+
+    <!-- Cute Mouth/Nose details and Whiskers -->
+    <path
+        android:pathData="M54,54 L52,56.5 L56,56.5 Z"
+        android:fillColor="#F472B6" />
+        
+    <!-- Whiskers Left -->
+    <path
+        android:pathData="M32,52 L26,51 M32,55 L25,55 M32,58 L26,59"
+        android:strokeWidth="1.5"
+        android:strokeColor="#A5B4FC"
+        android:strokeLineCap="round" />
+
+    <!-- Whiskers Right -->
+    <path
+        android:pathData="M76,52 L82,51 M76,55 L83,55 M76,58 L82,59"
+        android:strokeWidth="1.5"
+        android:strokeColor="#A5B4FC"
+        android:strokeLineCap="round" />
+</vector>
