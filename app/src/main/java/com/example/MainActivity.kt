@@ -6,10 +6,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -147,6 +149,10 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     val cpuUsage by viewModel.cpuUsage.collectAsStateWithLifecycle()
     val ramUsage by viewModel.ramUsage.collectAsStateWithLifecycle()
 
+    val isAntigravityHudEnabled by viewModel.isAntigravityHudEnabled.collectAsStateWithLifecycle()
+    val mascotExpression by viewModel.mascotExpression.collectAsStateWithLifecycle()
+    val isWebRunning by viewModel.isWebRunning.collectAsStateWithLifecycle()
+
     // Resolve Theme dynamically based on installed extensions list
     val currentTheme = remember(extensions) {
         when {
@@ -170,17 +176,39 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     var vpsUser by remember { mutableStateOf("") }
     var vpsPort by remember { mutableStateOf("22") }
 
+    var showSaveSnippetDialog by remember { mutableStateOf(false) }
+    var snippetToSaveContent by remember { mutableStateOf("") }
+    var snippetToSaveTitle by remember { mutableStateOf("") }
+    var snippetToSaveCategory by remember { mutableStateOf("Web Front-end") }
+    var snippetToSaveTags by remember { mutableStateOf("") }
+
     var isSidebarOpen by remember { mutableStateOf(true) }
+    var isSplitWebPreviewEnabled by remember { mutableStateOf(false) }
+
+    val neonLanguageBrush = remember(selectedPath) {
+        val name = selectedPath ?: ""
+        val color = when {
+            name.endsWith(".py") -> Color(0xFF34D399) // Python green
+            name.endsWith(".html") || name.endsWith(".js") -> Color(0xFFFBBF24) // Web yellow
+            name.endsWith(".css") -> Color(0xFF38BDF8) // Style blue
+            else -> Color(0xFFEC4899) // General neon pink
+        }
+        Brush.linearGradient(listOf(color, color.copy(alpha = 0.4f)))
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
         color = currentTheme.bg
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .windowInsetsPadding(WindowInsets.safeDrawing)
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            if (isAntigravityHudEnabled) {
+                StarsCanvas(modifier = Modifier.fillMaxSize())
+            }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+            ) {
             // --- TOP HEADER BAR ---
             Row(
                 modifier = Modifier
@@ -300,14 +328,20 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                         modifier = Modifier
                             .fillMaxHeight()
                             .width(280.dp)
-                            .background(currentTheme.sidePanelBg)
+                            .background(if (isAntigravityHudEnabled) currentTheme.sidePanelBg.copy(alpha = 0.85f) else currentTheme.sidePanelBg)
+                            .border(
+                                if (isAntigravityHudEnabled) BorderStroke(1.5.dp, Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFF38BDF8))))
+                                else BorderStroke(0.dp, Color.Transparent)
+                            )
                             .drawBehind {
-                                drawLine(
-                                    color = Color(0x20FFFFFF),
-                                    start = Offset(size.width, 0f),
-                                    end = Offset(size.width, size.height),
-                                    strokeWidth = 1.dp.toPx()
-                                )
+                                if (!isAntigravityHudEnabled) {
+                                    drawLine(
+                                        color = Color(0x20FFFFFF),
+                                        start = Offset(size.width, 0f),
+                                        end = Offset(size.width, size.height),
+                                        strokeWidth = 1.dp.toPx()
+                                    )
+                                }
                             }
                     ) {
                         // Narrow icon column (VS Code style tool activity rail)
@@ -327,6 +361,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                 Triple("extensions", Icons.Default.Extension, "Extensions"),
                                 Triple("ai", Icons.Default.Bolt, "AI Coder Assistant"),
                                 Triple("web", Icons.Default.Language, "Localhost Web"),
+                                Triple("snippets", Icons.Default.Bookmark, "Snippet Library"),
                                 Triple("vps", Icons.Default.Terminal, "VPS SSH Profiles"),
                                 Triple("settings", Icons.Default.Settings, "Core Settings")
                             )
@@ -358,6 +393,11 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                 .weight(1f)
                                 .padding(12.dp)
                         ) {
+                            // High-End cute AI companion Mascot
+                            MascotWidget(expression = mascotExpression, theme = currentTheme)
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
                             Text(
                                 text = activePanel.uppercase(),
                                 fontSize = 12.sp,
@@ -403,9 +443,18 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     model = aiModel,
                                     theme = currentTheme,
                                     onSend = { viewModel.sendAiPrompt(it) },
-                                    onApplyCode = { viewModel.applyAiCodeToEditor(it) }
+                                    onApplyCode = { viewModel.applyAiCodeToEditor(it) },
+                                    onSaveSnippet = { code ->
+                                        snippetToSaveContent = code
+                                        snippetToSaveTitle = "AI Code " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+                                        showSaveSnippetDialog = true
+                                    }
                                 )
                                 "web" -> WebPanel(
+                                    viewModel = viewModel,
+                                    theme = currentTheme
+                                )
+                                "snippets" -> SnippetsPanel(
                                     viewModel = viewModel,
                                     theme = currentTheme
                                 )
@@ -420,6 +469,8 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     key = aiKey,
                                     model = aiModel,
                                     theme = currentTheme,
+                                    isAntigravityHudEnabled = isAntigravityHudEnabled,
+                                    onToggleAntigravityHud = { viewModel.toggleAntigravityHud() },
                                     onUpdateSettings = { url, key, m -> viewModel.updateAiSettings(url, key, m) }
                                 )
                             }
@@ -522,8 +573,44 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     )
 
                                     Row(
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
+                                        // VS Code style simple browser live server integration split layout toggle
+                                        TextButton(
+                                            onClick = { isSplitWebPreviewEnabled = !isSplitWebPreviewEnabled },
+                                            colors = ButtonDefaults.textButtonColors(
+                                                contentColor = if (isSplitWebPreviewEnabled) currentTheme.accent else currentTheme.textPrimary.copy(alpha = 0.6f)
+                                            ),
+                                            contentPadding = PaddingValues(horizontal = 6.dp),
+                                            modifier = Modifier
+                                                .height(28.dp)
+                                                .background(
+                                                    if (isSplitWebPreviewEnabled) currentTheme.accent.copy(alpha = 0.12f) 
+                                                    else Color.Transparent, 
+                                                    RoundedCornerShape(4.dp)
+                                                )
+                                                .testTag("split_preview_toggle")
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Language,
+                                                    contentDescription = "Split View Live Web",
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                                Text(
+                                                    text = if (isSplitWebPreviewEnabled) "Split Preview: ON 🌐" else "Split Preview 🌐",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+
                                         IconButton(
                                             onClick = { viewModel.applyUndo() },
                                             modifier = Modifier.size(24.dp)
@@ -554,42 +641,74 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                         .fillMaxWidth()
                                         .weight(1f)
                                 ) {
-                                    // Simulated Line Numbers column
-                                    val linesCount = editorContent.split("\n").size.coerceAtLeast(1)
-                                    Column(
+                                    // Left Pane: Code Editor with Line Numbers (takes half of width if split, or full width if not)
+                                    Row(
                                         modifier = Modifier
-                                            .width(28.dp)
+                                            .weight(1f)
                                             .fillMaxHeight()
-                                            .background(currentTheme.headerBg.copy(alpha = 0.15f))
-                                            .padding(vertical = 8.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally
-                                    ) {
-                                        for (i in 1..linesCount) {
-                                            Text(
-                                                text = i.toString(),
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 11.sp,
-                                                color = currentTheme.textPrimary.copy(alpha = 0.25f)
+                                            .then(
+                                                if (isSplitWebPreviewEnabled) Modifier.border(
+                                                    0.5.dp,
+                                                    currentTheme.textPrimary.copy(alpha = 0.15f)
+                                                ) else Modifier
                                             )
+                                    ) {
+                                        // Simulated Line Numbers column
+                                        val linesCount = editorContent.split("\n").size.coerceAtLeast(1)
+                                        Column(
+                                            modifier = Modifier
+                                                .width(28.dp)
+                                                .fillMaxHeight()
+                                                .background(currentTheme.headerBg.copy(alpha = 0.15f))
+                                                .padding(vertical = 8.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally
+                                        ) {
+                                            for (i in 1..linesCount) {
+                                                Text(
+                                                    text = i.toString(),
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 11.sp,
+                                                    color = currentTheme.textPrimary.copy(alpha = 0.25f)
+                                                )
+                                            }
                                         }
+
+                                        // Real Interactive Text Field Editor space
+                                        BasicTextField(
+                                            value = editorContent,
+                                            onValueChange = { viewModel.updateEditorContent(it) },
+                                            textStyle = TextStyle(
+                                                color = currentTheme.textPrimary,
+                                                fontFamily = FontFamily.Monospace,
+                                                fontSize = 13.sp,
+                                                lineHeight = 18.sp
+                                            ),
+                                            cursorBrush = SolidColor(currentTheme.accent),
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(8.dp)
+                                                .testTag("code_editor_field")
+                                        )
                                     }
 
-                                    // Real Interactive Text Field Editor space
-                                    BasicTextField(
-                                        value = editorContent,
-                                        onValueChange = { viewModel.updateEditorContent(it) },
-                                        textStyle = TextStyle(
-                                            color = currentTheme.textPrimary,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 13.sp,
-                                            lineHeight = 18.sp
-                                        ),
-                                        cursorBrush = SolidColor(currentTheme.accent),
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(8.dp)
-                                            .testTag("code_editor_field")
-                                    )
+                                    if (isSplitWebPreviewEnabled) {
+                                        // Vertical dark line dividing split pane
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .fillMaxHeight()
+                                                .background(currentTheme.headerBg)
+                                        )
+
+                                        // Right Pane: Live web browser preview frame
+                                        SplitBrowserPreviewFrame(
+                                            viewModel = viewModel,
+                                            theme = currentTheme,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight()
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -761,7 +880,108 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                     }
                 }
             }
+
+            // --- VS CODE STYLE STATUS BAR ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(22.dp)
+                    .background(currentTheme.headerBg)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // Left Side: Status & Git Info
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    // Git branch status
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Source,
+                            contentDescription = "Git Branch",
+                            tint = currentTheme.accent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Text(
+                            text = "main",
+                            fontSize = 10.sp,
+                            color = currentTheme.textPrimary.copy(alpha = 0.8f),
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+
+                    // Web server running status
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (isWebRunning) Color(0xFF10B981) else Color.Gray)
+                        )
+                        Text(
+                            text = if (isWebRunning) "Port: 8080 (Live) ✨" else "Port: 8080 (Offline)",
+                            fontSize = 10.sp,
+                            color = if (isWebRunning) Color(0xFF10B981) else currentTheme.textPrimary.copy(alpha = 0.5f)
+                        )
+                    }
+
+                    // AI companion mascot info
+                    Text(
+                        text = "🐾 Mascot: $mascotExpression",
+                        fontSize = 10.sp,
+                        color = currentTheme.accentSecondary
+                    )
+                }
+
+                // Right Side: Language & Coding Metrics
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    val activeLang = remember(selectedPath) {
+                        selectedPath?.substringAfterLast('.')?.uppercase() ?: "PLAIN TEXT"
+                    }
+                    Text(
+                        text = "Lines: ${remember(editorContent) { editorContent.split("\n").size }}",
+                        fontSize = 10.sp,
+                        color = currentTheme.textPrimary.copy(alpha = 0.6f),
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "Spaces: 4",
+                        fontSize = 10.sp,
+                        color = currentTheme.textPrimary.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        text = "UTF-8",
+                        fontSize = 10.sp,
+                        color = currentTheme.textPrimary.copy(alpha = 0.6f)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .background(currentTheme.accent.copy(alpha = 0.15f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                    ) {
+                        Text(
+                            text = activeLang,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = currentTheme.accent
+                        )
+                    }
+                }
+            }
         }
+        } // Closing Box of holographic StarsCanvas
     }
 
     // --- POPUP DIALOGS ---
@@ -939,6 +1159,472 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                 TextButton(onClick = { showSshDialog = false }) { Text("Cancel") }
             }
         )
+    }
+
+    // 5. Save Snippet Dialog directly from chat messages in AiAssistantPanel
+    if (showSaveSnippetDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveSnippetDialog = false },
+            title = { Text("Save Snippet to VIP Library 👑") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Customize and save the extracted AI code snippet into your secure VIP repository:", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = snippetToSaveTitle,
+                        onValueChange = { snippetToSaveTitle = it },
+                        label = { Text("Snippet Title") },
+                        placeholder = { Text("e.g. Flutter Glass Card") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = snippetToSaveCategory,
+                        onValueChange = { snippetToSaveCategory = it },
+                        label = { Text("Category") },
+                        placeholder = { Text("e.g. Web Front-end, Jetpack Compose") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = snippetToSaveTags,
+                        onValueChange = { snippetToSaveTags = it },
+                        label = { Text("Tags (separated by space)") },
+                        placeholder = { Text("e.g. css custom web") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val tagsList = snippetToSaveTags.split(" ").filter { it.trim().isNotEmpty() }
+                        viewModel.addCodeSnippet(snippetToSaveTitle, snippetToSaveContent, snippetToSaveCategory, tagsList)
+                        showSaveSnippetDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent)
+                ) { Text("Save Library 🐾", color = currentTheme.headerBg) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSaveSnippetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+// --- LUXURY STARS BACKGROUND CANVAS ---
+@Composable
+fun StarsCanvas(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition()
+    val animPhase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 2000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(40000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        )
+    )
+
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+        if (w == 0f || h == 0f) return@Canvas
+        
+        val randomSeeded = java.util.Random(1337)
+        for (i in 0..120) {
+            val rawX = randomSeeded.nextFloat() * w
+            val rawY = randomSeeded.nextFloat() * h
+            val speed = 0.05f + randomSeeded.nextFloat() * 0.45f
+            
+            val finalY = (rawY + animPhase * speed) % h
+            val alpha = 0.15f + ((Math.sin((animPhase * 0.01) + i).toFloat() + 1f) / 2f) * 0.8f
+            val sizeRadius = 1.dp.toPx() + randomSeeded.nextFloat() * 2.dp.toPx()
+            
+            // Neon pink / cyan / white constellation stars
+            val color = when {
+                i % 4 == 0 -> Color(0xFFEC4899) // Neon Pink
+                i % 4 == 1 -> Color(0xFF38BDF8) // Neon Cyan
+                i % 4 == 2 -> Color(0xFFA855F7) // Purple Amethyst
+                else -> Color.White
+            }
+            drawCircle(
+                color = color.copy(alpha = alpha * 0.6f),
+                radius = sizeRadius,
+                center = Offset(rawX, finalY)
+            )
+        }
+    }
+}
+
+// --- MASCOT COMPANION WIDGET ---
+@Composable
+fun MascotWidget(
+    expression: String,
+    theme: IdeTheme
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = theme.accent.copy(alpha = 0.06f)),
+        border = BorderStroke(1.dp, Brush.linearGradient(listOf(theme.accent.copy(alpha = 0.4f), theme.accentSecondary.copy(alpha = 0.4f)))),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp)
+            .testTag("mascot_widget_container")
+    ) {
+        Row(
+            modifier = Modifier.padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(42.dp)
+                    .clip(CircleShape)
+                    .background(theme.headerBg)
+                    .border(1.dp, theme.accentSecondary, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("🐱", fontSize = 20.sp)
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = "Meowcoder VIP",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.accent
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(theme.accent.copy(alpha = 0.15f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(expression, fontSize = 8.sp, color = theme.accent, fontWeight = FontWeight.Bold)
+                    }
+                }
+                
+                val speech = when {
+                    expression.contains("Coding") -> "Stunning! Writing optimal, clean lines of code. Let us create masterpiece interfaces!"
+                    expression.contains("Smart") -> "IntelliSense is supercharged! Every symbol placement is mathematically precise."
+                    expression.contains("Meditating") -> "Inhale inspiration, exhale bugs. Focus on beautiful, responsive designs."
+                    expression.contains("Glow") -> "Antigravity VIP Mode active. Ranh giới giữa code và nghệ thuật đã xóa nhòa!"
+                    expression.contains("Amused") -> "Purr-fect logic! Web host serves our gorgeous creations smoothly."
+                    else -> "Ready to create! I am Meowcoder, built to secure and beautify your workflow."
+                }
+                
+                Text(
+                    text = speech,
+                    fontSize = 10.sp,
+                    color = theme.textPrimary.copy(alpha = 0.8f),
+                    lineHeight = 13.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+// --- CODE SNIPPETS PANEL ---
+@Composable
+fun SnippetsPanel(
+    viewModel: MeowCodeViewModel,
+    theme: IdeTheme
+) {
+    val snippets by viewModel.savedSnippets.collectAsStateWithLifecycle()
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedCategory by remember { mutableStateOf("All") }
+    
+    var showCreateForm by remember { mutableStateOf(false) }
+    var newTitle by remember { mutableStateOf("") }
+    var newCategory by remember { mutableStateOf("Web Front-end") }
+    var newTags by remember { mutableStateOf("") }
+    var newContent by remember { mutableStateOf("") }
+
+    val categories = listOf("All", "Web Front-end", "JavaScript", "Python", "Jetpack Compose", "Utility")
+
+    val filteredSnippets = remember(snippets, searchQuery, selectedCategory) {
+        snippets.filter { snippet ->
+            val matchesCategory = (selectedCategory == "All" || snippet.category == selectedCategory)
+            val matchesSearch = (searchQuery.isEmpty() ||
+                    snippet.title.contains(searchQuery, ignoreCase = true) ||
+                    snippet.content.contains(searchQuery, ignoreCase = true) ||
+                    snippet.tags.any { it.contains(searchQuery, ignoreCase = true) })
+            matchesCategory && matchesSearch
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (showCreateForm) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, theme.accent.copy(alpha = 0.3f))
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("New Code Snippet 👑", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.accent)
+                        IconButton(
+                            onClick = { showCreateForm = false },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Close, "Close", tint = theme.textPrimary.copy(alpha = 0.6f), modifier = Modifier.size(16.dp))
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        placeholder = { Text("Title (e.g., Rounded Glass Card)") },
+                        textStyle = TextStyle(fontSize = 11.sp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    )
+
+                    Text("Category Selector", fontSize = 9.sp, color = theme.textPrimary.copy(alpha = 0.5f))
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        val subCats = listOf("Web Front-end", "JavaScript", "Python", "Jetpack Compose", "Utility")
+                        items(subCats) { cat ->
+                            val isSel = newCategory == cat
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isSel) theme.accent else theme.headerBg)
+                                    .clickable { newCategory = cat }
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(cat, fontSize = 9.sp, color = if (isSel) theme.headerBg else theme.textPrimary)
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = newTags,
+                        onValueChange = { newTags = it },
+                        placeholder = { Text("Tags separated by spaces (e.g., css card)") },
+                        textStyle = TextStyle(fontSize = 11.sp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    )
+
+                    OutlinedTextField(
+                        value = newContent,
+                        onValueChange = { newContent = it },
+                        placeholder = { Text("Code block body...") },
+                        textStyle = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 10.5.sp),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent),
+                        modifier = Modifier.fillMaxWidth().height(100.dp)
+                    )
+
+                    Button(
+                        onClick = {
+                            if (newTitle.isNotEmpty() && newContent.isNotEmpty()) {
+                                val tagsList = newTags.split(" ").filter { it.trim().isNotEmpty() }
+                                viewModel.addCodeSnippet(newTitle, newContent, newCategory, tagsList)
+                                newTitle = ""
+                                newTags = ""
+                                newContent = ""
+                                showCreateForm = false
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accent),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Add to VIP Library 🐾", fontSize = 11.sp, color = theme.headerBg)
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search library...") },
+                    leadingIcon = { Icon(Icons.Default.Search, "Search", modifier = Modifier.size(14.dp)) },
+                    textStyle = TextStyle(color = theme.textPrimary, fontSize = 11.sp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent),
+                    modifier = Modifier.weight(1f).height(46.dp)
+                )
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                IconButton(
+                    onClick = { showCreateForm = true },
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(theme.accent)
+                ) {
+                    Icon(Icons.Default.Add, "Add Snippet", tint = theme.headerBg, modifier = Modifier.size(20.dp))
+                }
+            }
+
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+            ) {
+                items(categories) { cat ->
+                    val isSel = selectedCategory == cat
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isSel) theme.accent else theme.cardBg)
+                            .clickable { selectedCategory = cat }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(cat, fontSize = 9.sp, color = if (isSel) theme.headerBg else theme.textPrimary)
+                    }
+                }
+            }
+
+            if (filteredSnippets.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().weight(1f).padding(24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("📦 No snippets found", fontSize = 12.sp, color = theme.textPrimary.copy(alpha = 0.5f))
+                        Text("Create a snippet or adjust searches.", fontSize = 10.sp, color = theme.textPrimary.copy(alpha = 0.3f))
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(filteredSnippets) { snippet ->
+                        var isExpanded by remember { mutableStateOf(false) }
+
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            border = BorderStroke(0.5.dp, theme.textPrimary.copy(alpha = 0.15f))
+                        ) {
+                            Column(modifier = Modifier.padding(10.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(snippet.title, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary)
+                                        Text(snippet.category, fontSize = 9.2.sp, color = theme.textSecondary)
+                                    }
+                                    IconButton(
+                                        onClick = { isExpanded = !isExpanded },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                            contentDescription = "Expand",
+                                            tint = theme.accent,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+
+                                if (snippet.tags.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        snippet.tags.forEach { tag ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(theme.headerBg)
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text("#$tag", fontSize = 8.sp, color = theme.accentSecondary)
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (isExpanded) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Surface(
+                                        color = theme.headerBg,
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.fillMaxWidth().heightIn(max = 140.dp)
+                                    ) {
+                                        Box(modifier = Modifier.padding(6.dp).verticalScroll(rememberScrollState())) {
+                                            SelectionContainer {
+                                                Text(
+                                                    text = snippet.content,
+                                                    fontSize = 9.5.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    color = theme.textPrimary
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            onClick = { viewModel.insertSnippetIntoFile(snippet) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = theme.accent),
+                                            shape = RoundedCornerShape(4.dp),
+                                            modifier = Modifier.weight(1f).height(32.dp),
+                                            contentPadding = PaddingValues(0.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                Icon(Icons.Default.ContentPaste, "Insert", tint = theme.headerBg, modifier = Modifier.size(12.dp))
+                                                Text("Insert Into File", fontSize = 10.sp, color = theme.headerBg, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        Button(
+                                            onClick = { viewModel.deleteCodeSnippet(snippet.id) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                                            shape = RoundedCornerShape(4.dp),
+                                            modifier = Modifier.height(32.dp),
+                                            contentPadding = PaddingValues(horizontal = 8.dp)
+                                        ) {
+                                            Icon(Icons.Default.Delete, "Delete", tint = Color.White, modifier = Modifier.size(12.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -1271,7 +1957,8 @@ fun AiAssistantPanel(
     model: String,
     theme: IdeTheme,
     onSend: (String) -> Unit,
-    onApplyCode: (String) -> Unit
+    onApplyCode: (String) -> Unit,
+    onSaveSnippet: (String) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -1320,18 +2007,35 @@ fun AiAssistantPanel(
                             // Quick snippet extract injector actions if response has code
                             if (!isMe && (msg.content.contains("```") || msg.content.contains("def") || msg.content.contains("function"))) {
                                 Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = "🐾 Apply snippet directly",
-                                    fontSize = 10.sp,
-                                    color = theme.textSecondary,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier
-                                        .clickable {
-                                            val parsedCode = extractMarkdownCodeSnippet(msg.content)
-                                            onApplyCode(parsedCode)
-                                        }
-                                        .padding(4.dp)
-                                )
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "🐾 Apply directly",
+                                        fontSize = 10.sp,
+                                        color = theme.textSecondary,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable {
+                                                val parsedCode = extractMarkdownCodeSnippet(msg.content)
+                                                onApplyCode(parsedCode)
+                                            }
+                                            .padding(4.dp)
+                                    )
+                                    Text(
+                                        text = "👑 Save Snippet",
+                                        fontSize = 10.sp,
+                                        color = theme.accent,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier
+                                            .clickable {
+                                                val parsedCode = extractMarkdownCodeSnippet(msg.content)
+                                                onSaveSnippet(parsedCode)
+                                            }
+                                            .padding(4.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -1485,6 +2189,8 @@ fun SettingsPanel(
     key: String,
     model: String,
     theme: IdeTheme,
+    isAntigravityHudEnabled: Boolean,
+    onToggleAntigravityHud: () -> Unit,
     onUpdateSettings: (String, String, String) -> Unit
 ) {
     var editedUrl by remember(url) { mutableStateOf(url) }
@@ -1497,6 +2203,60 @@ fun SettingsPanel(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // --- LUXURY VIP HUD SETTINGS ---
+        Card(
+            colors = CardDefaults.cardColors(containerColor = theme.accent.copy(alpha = 0.08f)),
+            border = BorderStroke(1.dp, Brush.linearGradient(listOf(theme.accent, theme.accentSecondary))),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth().testTag("vip_hud_settings_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "👑 ANTIGRAVITY VIP HUD MODE",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.accent
+                    )
+
+                    // Custom styled Neon Switch Button for maximal visual polish
+                    Button(
+                        onClick = { onToggleAntigravityHud() },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isAntigravityHudEnabled) theme.accent else theme.headerBg
+                        ),
+                        border = BorderStroke(1.dp, theme.accent),
+                        shape = RoundedCornerShape(20.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
+                        modifier = Modifier.height(28.dp)
+                    ) {
+                        Text(
+                            text = if (isAntigravityHudEnabled) "ACTIVE ✨" else "DISABLED 📴",
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (isAntigravityHudEnabled) theme.headerBg else theme.accent
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Transform Meow Code into a stunning 3D futuristic hologram deck. Unlocks gorgeous neon panels, a stellar moving backdrop, and your animated VIP companion mascot.",
+                    fontSize = 10.5.sp,
+                    color = theme.textPrimary.copy(alpha = 0.7f),
+                    lineHeight = 14.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         Text(
             "CUSTOM AI API INTEGRATION",
             fontSize = 11.sp,
@@ -1820,6 +2580,217 @@ fun WebPanel(
                         color = theme.textPrimary.copy(alpha = 0.4f),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         modifier = Modifier.padding(horizontal = 16.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SplitBrowserPreviewFrame(
+    viewModel: MeowCodeViewModel,
+    theme: IdeTheme,
+    modifier: Modifier = Modifier
+) {
+    val isWebRunning by viewModel.isWebRunning.collectAsStateWithLifecycle()
+    val serverPort by viewModel.serverPort.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var inputUrl by remember { mutableStateOf("http://127.0.0.1:8080/index.html") }
+    var loadedUrl by remember { mutableStateOf("http://127.0.0.1:8080/index.html") }
+    var refreshKey by remember { mutableStateOf(0) }
+    var webViewInstance by remember { mutableStateOf<WebView?>(null) }
+    var isAutoReloadEnabled by remember { mutableStateOf(true) }
+
+    // Auto update port dynamically if configured port is changed
+    LaunchedEffect(serverPort) {
+        val newUrl = "http://127.0.0.1:$serverPort/index.html"
+        inputUrl = newUrl
+        loadedUrl = newUrl
+    }
+
+    // Auto-reload support on workspace code edits
+    val editorContent by viewModel.currentEditorContent.collectAsStateWithLifecycle()
+    LaunchedEffect(editorContent) {
+        if (isAutoReloadEnabled && isWebRunning) {
+            refreshKey++
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White)
+    ) {
+        // --- BROWSER NAVIGATION BAR ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(theme.headerBg)
+                .padding(vertical = 4.dp, horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Navigation Buttons
+            IconButton(
+                onClick = { webViewInstance?.goBack() },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Back",
+                    tint = theme.accent,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            IconButton(
+                onClick = { webViewInstance?.goForward() },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = "Forward",
+                    tint = theme.accent,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            IconButton(
+                onClick = {
+                    loadedUrl = inputUrl
+                    refreshKey++
+                },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Reload",
+                    tint = theme.accent,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            // Interactive Address Bar
+            OutlinedTextField(
+                value = inputUrl,
+                onValueChange = { inputUrl = it },
+                textStyle = TextStyle(fontSize = 11.sp, color = theme.textPrimary, fontFamily = FontFamily.Monospace),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = theme.bg,
+                    unfocusedContainerColor = theme.bg,
+                    unfocusedBorderColor = theme.textPrimary.copy(alpha = 0.15f),
+                    focusedBorderColor = theme.accentSecondary
+                ),
+                singleLine = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(36.dp),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(
+                    onGo = {
+                        loadedUrl = inputUrl
+                        refreshKey++
+                    }
+                )
+            )
+
+            // Auto-Reload Toggle Badge
+            IconButton(
+                onClick = { isAutoReloadEnabled = !isAutoReloadEnabled },
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(if (isAutoReloadEnabled) theme.accent.copy(alpha = 0.15f) else Color.Transparent)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = "Auto Reload toggle",
+                    tint = if (isAutoReloadEnabled) theme.accent else theme.textPrimary.copy(alpha = 0.4f),
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+
+            // Real Browser External Launch Icon
+            IconButton(
+                onClick = {
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        data = Uri.parse(loadedUrl)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    try {
+                        context.startActivity(intent)
+                    } catch (e: Exception) {}
+                },
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ExitToApp,
+                    contentDescription = "Open in Chrome",
+                    tint = theme.accentSecondary,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+        }
+
+        // Divider
+        Divider(color = theme.textPrimary.copy(alpha = 0.1f))
+
+        // Web State Display
+        if (!isWebRunning) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(theme.bg)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("🛑 Web Live Server is Offline", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary)
+                    Text(
+                        "Click '⚡ Start Localhost:8080' in Localhost Web Sidebar Panel to activate instant browser hot-reloads.",
+                        fontSize = 11.sp,
+                        color = theme.textPrimary.copy(alpha = 0.6f),
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Button(
+                        onClick = { viewModel.startWebLocalhostServer() },
+                        colors = ButtonDefaults.buttonColors(containerColor = theme.accent),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("⚡ Start Local Live Server", fontSize = 11.sp, color = theme.headerBg)
+                    }
+                }
+            }
+        } else {
+            // Live WebView
+            Box(modifier = Modifier.fillMaxSize().weight(1f)) {
+                key(refreshKey, loadedUrl) {
+                    AndroidView(
+                        factory = { ctx ->
+                            WebView(ctx).apply {
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        super.onPageFinished(view, url)
+                                        if (url != null) {
+                                            inputUrl = url
+                                        }
+                                    }
+                                }
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                settings.allowFileAccess = true
+                                settings.allowContentAccess = true
+                                settings.databaseEnabled = true
+                                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                loadUrl(loadedUrl)
+                                webViewInstance = this
+                            }
+                        },
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }

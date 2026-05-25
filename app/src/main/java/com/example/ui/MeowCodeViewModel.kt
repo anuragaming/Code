@@ -46,6 +46,16 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     private val _activePanel = MutableStateFlow("explorer") // explorer, search, git, extensions, ai, vps, settings
     val activePanel: StateFlow<String> = _activePanel.asStateFlow()
 
+    // --- VIP Edition & Code Snippet State Flows ---
+    private val _savedSnippets = MutableStateFlow<List<CodeSnippet>>(emptyList())
+    val savedSnippets: StateFlow<List<CodeSnippet>> = _savedSnippets.asStateFlow()
+
+    private val _isAntigravityHudEnabled = MutableStateFlow(false)
+    val isAntigravityHudEnabled: StateFlow<Boolean> = _isAntigravityHudEnabled.asStateFlow()
+
+    private val _mascotExpression = MutableStateFlow("Coding 😼")
+    val mascotExpression: StateFlow<String> = _mascotExpression.asStateFlow()
+
     // Editor Undo/Redo Stacks
     private val undoStack = Stack<String>()
     private val redoStack = Stack<String>()
@@ -107,12 +117,33 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
             _aiApiKey.value = repository.getSetting("ai_api_key") ?: ""
             _aiModel.value = repository.getSetting("ai_model") ?: "gemini-3.5-flash"
 
+            _isAntigravityHudEnabled.value = (repository.getSetting("vip_antigravity_hud") == "true")
+
+            val snippetSetting = repository.getSetting("saved_code_snippets") ?: ""
+            val parsed = deserializeSnippets(snippetSetting)
+            if (parsed.isEmpty()) {
+                val seed = getSeedSnippets()
+                _savedSnippets.value = seed
+                repository.updateSetting("saved_code_snippets", serializeSnippets(seed))
+            } else {
+                _savedSnippets.value = parsed
+            }
+
             // Simulate System Stats
             launch {
                 while (true) {
                     kotlinx.coroutines.delay(2000)
                     _cpuUsage.value = (8..22).random()
                     _ramUsage.value = (38..46).random()
+                }
+            }
+
+            // Animate / Cycle Mascot Expressions
+            launch {
+                val expressions = listOf("Coding 😼", "Smart 🧠", "Meditating 🧘", "Glow 🕶️", "Amused 😹", "Writing 🐾")
+                while (true) {
+                    kotlinx.coroutines.delay(12000)
+                    _mascotExpression.value = expressions.random()
                 }
             }
         }
@@ -760,6 +791,258 @@ $filesContext"""
         }
     }
 
+    // --- VIP HUD, Mascot, and Snippet actions ---
+    fun toggleAntigravityHud() {
+        val nextVal = !_isAntigravityHudEnabled.value
+        _isAntigravityHudEnabled.value = nextVal
+        _mascotExpression.value = if (nextVal) "Glow 🕶️" else "Coding 😼"
+        viewModelScope.launch {
+            repository.updateSetting("vip_antigravity_hud", nextVal.toString())
+        }
+    }
+
+    fun addCodeSnippet(title: String, content: String, category: String, tags: List<String>) {
+        viewModelScope.launch {
+            val currentList = _savedSnippets.value.toMutableList()
+            val newItem = CodeSnippet(
+                id = java.util.UUID.randomUUID().toString(),
+                title = title,
+                content = content,
+                category = category,
+                tags = tags,
+                timestamp = System.currentTimeMillis()
+            )
+            currentList.add(0, newItem)
+            _savedSnippets.value = currentList
+            repository.updateSetting("saved_code_snippets", serializeSnippets(currentList))
+        }
+    }
+
+    fun deleteCodeSnippet(id: String) {
+        viewModelScope.launch {
+            val currentList = _savedSnippets.value.filter { it.id != id }
+            _savedSnippets.value = currentList
+            repository.updateSetting("saved_code_snippets", serializeSnippets(currentList))
+        }
+    }
+
+    fun insertSnippetIntoFile(snippet: CodeSnippet) {
+        viewModelScope.launch {
+            val current = _currentEditorContent.value
+            val nextContent = if (current.trim().isEmpty()) {
+                snippet.content
+            } else {
+                "$current\n\n// --- Inserted Snippet: ${snippet.title} ---\n${snippet.content}"
+            }
+            updateEditorContent(nextContent)
+        }
+    }
+
+    // Default Seed VIP Snippets
+    private fun getSeedSnippets(): List<CodeSnippet> {
+        return listOf(
+            CodeSnippet(
+                id = "seed1",
+                title = "Glassmorphic Glow Card",
+                category = "Web Front-end",
+                tags = listOf("css", "html", "glassmorphism"),
+                content = """<!-- Glassmorphic Cyber Display -->
+<div class="glow-card">
+  <h2>Meow VIP Edition</h2>
+  <p>Crafting masterworks in modern portable workspaces.</p>
+  <button class="vip-btn">Synthesize</button>
+</div>
+
+<style>
+  .glow-card {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(12px);
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 24px;
+    box-shadow: 0 0 20px rgba(56, 189, 248, 0.2);
+    transition: all 0.3s ease;
+  }
+  .glow-card:hover {
+    box-shadow: 0 0 40px rgba(244, 63, 94, 0.4);
+    transform: translateY(-5px);
+  }
+  .vip-btn {
+    background: linear-gradient(45deg, #f43f5e, #38bdf8);
+    color: #fff;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 8px;
+    cursor: pointer;
+  }
+</style>"""
+            ),
+            CodeSnippet(
+                id = "seed2",
+                title = "Starfield Particle Engine",
+                category = "JavaScript",
+                tags = listOf("canvas", "javascript", "animation"),
+                content = """const canvas = document.createElement('canvas');
+document.body.appendChild(canvas);
+const ctx = canvas.getContext('2d');
+let stars = [];
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+class Star {
+  constructor() {
+    this.x = Math.random() * canvas.width;
+    this.y = Math.random() * canvas.height;
+    this.z = Math.random() * canvas.width;
+    this.velocity = 2 + Math.random() * 3;
+  }
+  update() {
+    this.z -= this.velocity;
+    if (this.z <= 0) {
+      this.z = canvas.width;
+      this.x = Math.random() * canvas.width;
+      this.y = Math.random() * canvas.height;
+    }
+  }
+  draw() {
+    let sx = (this.x - canvas.width / 2) * (canvas.width / this.z) + canvas.width / 2;
+    let sy = (this.y - canvas.height / 2) * (canvas.width / this.z) + canvas.height / 2;
+    let radius = (canvas.width / this.z) * 0.5;
+    ctx.beginPath();
+    ctx.arc(sx, sy, Math.min(radius, 4), 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.fill();
+  }
+}
+
+for(let i=0; i<150; i++) stars.push(new Star());
+
+function animate() {
+  ctx.fillStyle = 'rgba(15, 8, 24, 0.1)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  stars.forEach(s => { s.update(); s.draw(); });
+  requestAnimationFrame(animate);
+}
+animate();"""
+            ),
+            CodeSnippet(
+                id = "seed3",
+                title = "Compose SoundWave Canvas",
+                category = "Jetpack Compose",
+                tags = listOf("compose", "canvas", "animation"),
+                content = """@Composable
+fun SoundWaveCanvas(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition()
+    val phase by transition.animateFloat(
+        initialValue = 0f, targetValue = 2f * Math.PI.toFloat(),
+        animationSpec = infiniteRepeatable(animation = tween(1500, easing = LinearEasing))
+    )
+    Canvas(modifier = modifier) {
+        val width = size.width
+        val height = size.height
+        val midY = height / 2f
+        val points = mutableListOf<Offset>()
+        for (x in 0..width.toInt() step 5) {
+            val wave = Math.sin((x * 0.02) + phase).toFloat() * 30dp.toPx()
+            points.add(Offset(x.toFloat(), midY + wave))
+        }
+        drawPoints(
+            points = points,
+            pointMode = PointMode.Polygon,
+            brush = Brush.horizontalGradient(listOf(Color(0xFFEC4899), Color(0xFF38BDF8))),
+            strokeWidth = 3dp.toPx()
+        )
+    }
+}"""
+            ),
+            CodeSnippet(
+                id = "seed4",
+                title = "Python Cyber Terminal Matrix",
+                category = "Python",
+                tags = listOf("python", "terminal", "matrix"),
+                content = """import os
+import time
+import random
+
+symbols = ["0", "1", "x", "y", "z", "🐾", "⭐", "💻", "🔥", "😻"]
+cols = os.get_terminal_size().columns if hasattr(os, "get_terminal_size") else 80
+
+def run_rain():
+    drops = [0] * cols
+    while True:
+        line = ""
+        for i in range(cols):
+            if random.random() > 0.95:
+                drops[i] = random.randint(5, 15)
+            if drops[i] > 0:
+                line += random.choice(symbols)
+                drops[i] -= 1
+            else:
+                line += " "
+        print(f"\033[32m{line}\033[0m")
+        time.sleep(0.08)
+
+if __name__ == '__main__':
+    print("Initializing VIP Cyber matrix rain... 🐾")
+    time.sleep(1)
+    run_rain()"""
+            )
+        )
+    }
+
+    private fun serializeSnippets(list: List<CodeSnippet>): String {
+        val arr = org.json.JSONArray()
+        for (item in list) {
+            val obj = org.json.JSONObject()
+            obj.put("id", item.id)
+            obj.put("title", item.title)
+            obj.put("content", item.content)
+            obj.put("category", item.category)
+            
+            val tagsArr = org.json.JSONArray()
+            for (tag in item.tags) {
+                tagsArr.put(tag)
+            }
+            obj.put("tags", tagsArr)
+            obj.put("timestamp", item.timestamp)
+            arr.put(obj)
+        }
+        return arr.toString()
+    }
+
+    private fun deserializeSnippets(jsonStr: String): List<CodeSnippet> {
+        val list = mutableListOf<CodeSnippet>()
+        if (jsonStr.trim().isEmpty() || jsonStr == "[]") return list
+        try {
+            val arr = org.json.JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                val id = obj.optString("id", "")
+                val title = obj.optString("title", "")
+                val content = obj.optString("content", "")
+                val category = obj.optString("category", "")
+                
+                val tagsList = mutableListOf<String>()
+                val tagsArr = obj.optJSONArray("tags")
+                if (tagsArr != null) {
+                    for (j in 0 until tagsArr.length()) {
+                        tagsList.add(tagsArr.getString(j))
+                    }
+                }
+                val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+                list.add(CodeSnippet(id, title, content, category, tagsList, timestamp))
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return list
+    }
+
     override fun onCleared() {
         super.onCleared()
         stopWebLocalhostServer()
@@ -770,4 +1053,13 @@ $filesContext"""
 data class ChatMessage(
     val sender: String, // "user", "assistant"
     val content: String
+)
+
+data class CodeSnippet(
+    val id: String,
+    val title: String,
+    val content: String,
+    val category: String,
+    val tags: List<String>,
+    val timestamp: Long = System.currentTimeMillis()
 )
