@@ -30,6 +30,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -78,46 +79,50 @@ data class IdeTheme(
     val textPrimary: Color,
     val textSecondary: Color,
     val accent: Color,
-    val accentSecondary: Color
+    val accentSecondary: Color,
+    val border: Color
 )
 
 val ClassicSlateTheme = IdeTheme(
-    bg = Color(0xFF1E1E2E),
-    cardBg = Color(0xFF24283B),
-    headerBg = Color(0xFF16161E),
-    sidePanelBg = Color(0xFF181825),
-    editorBg = Color(0xFF1E1E2E),
-    terminalBg = Color(0xFF0F0F14),
-    textPrimary = Color(0xFFC0CAF5),
-    textSecondary = Color(0xFF9ECE6A),
-    accent = Color(0xFF38BDF8),
-    accentSecondary = Color(0xFF7DD3FC)
+    bg = Color(0xFF0D0D0D),
+    cardBg = Color(0xFF1F1F1F),
+    headerBg = Color(0xFF131313),
+    sidePanelBg = Color(0xFF131313),
+    editorBg = Color(0xFF181818),
+    terminalBg = Color(0xFF0D0D0D),
+    textPrimary = Color(0xFFE5E5E5),
+    textSecondary = Color(0xFFA0A0A0),
+    accent = Color(0xFFC084FC),
+    accentSecondary = Color(0xFFA0A0A0),
+    border = Color(0xFF2A2A2A)
 )
 
 val DraculaTheme = IdeTheme(
-    bg = Color(0xFF282A36),
-    cardBg = Color(0xFF44475A),
-    headerBg = Color(0xFF191A21),
-    sidePanelBg = Color(0xFF1D1F27),
-    editorBg = Color(0xFF282A36),
-    terminalBg = Color(0xFF14151A),
+    bg = Color(0xFF1E1F29),
+    cardBg = Color(0xFF2D313F),
+    headerBg = Color(0xFF181A22),
+    sidePanelBg = Color(0xFF1A1C23),
+    editorBg = Color(0xFF1E1F29),
+    terminalBg = Color(0xFF14151B),
     textPrimary = Color(0xFFF8F8F2),
     textSecondary = Color(0xFF50FA7B),
     accent = Color(0xFFBD93F9),
-    accentSecondary = Color(0xFFFF79C6)
+    accentSecondary = Color(0xFFFF79C6),
+    border = Color(0xFF2E3142)
 )
 
 val NeonSynthwaveTheme = IdeTheme(
-    bg = Color(0xFF1F0D24),
-    cardBg = Color(0xFF33143B),
-    headerBg = Color(0xFF150818),
-    sidePanelBg = Color(0xFF190A1E),
-    editorBg = Color(0xFF1F0D24),
-    terminalBg = Color(0xFF0D030F),
-    textPrimary = Color(0xFFE2E8F0),
+    bg = Color(0xFF17061E),
+    cardBg = Color(0xFF2D1137),
+    headerBg = Color(0xFF110316),
+    sidePanelBg = Color(0xFF14051B),
+    editorBg = Color(0xFF1C0A24),
+    terminalBg = Color(0xFF0C0110),
+    textPrimary = Color(0xFFFAFAFA),
     textSecondary = Color(0xFF34D399),
     accent = Color(0xFFEC4899),
-    accentSecondary = Color(0xFFF43F5E)
+    accentSecondary = Color(0xFFF43F5E),
+    border = Color(0xFF381444)
 )
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -153,6 +158,20 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     val mascotExpression by viewModel.mascotExpression.collectAsStateWithLifecycle()
     val isWebRunning by viewModel.isWebRunning.collectAsStateWithLifecycle()
 
+    // --- Interactive Mobile IDE State Collections ---
+    val breakpoints by viewModel.breakpoints.collectAsStateWithLifecycle()
+    val isMeowKeyboardEnabled by viewModel.isMeowKeyboardEnabled.collectAsStateWithLifecycle()
+    val isCodePadMode by viewModel.isCodePadMode.collectAsStateWithLifecycle()
+    val keyboardSuggestions by viewModel.keyboardSuggestions.collectAsStateWithLifecycle()
+    val syncState by viewModel.syncState.collectAsStateWithLifecycle()
+    val activeGitBranch by viewModel.activeGitBranch.collectAsStateWithLifecycle()
+    val localHistory by viewModel.localHistory.collectAsStateWithLifecycle()
+    val testSuite by viewModel.testSuite.collectAsStateWithLifecycle()
+    val isDebugActive by viewModel.isDebugActive.collectAsStateWithLifecycle()
+    val debugConsoleLogs by viewModel.debugConsoleLogs.collectAsStateWithLifecycle()
+    val callStack by viewModel.callStack.collectAsStateWithLifecycle()
+    val watchVariables by viewModel.watchVariables.collectAsStateWithLifecycle()
+
     // Resolve Theme dynamically based on installed extensions list
     val currentTheme = remember(extensions) {
         when {
@@ -173,6 +192,13 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     var showSshDialog by remember { mutableStateOf(false) }
     var vpsName by remember { mutableStateOf("") }
     var vpsIp by remember { mutableStateOf("") }
+
+    // --- Developer Dialog State Variables ---
+    var showBranchSelectDialog by remember { mutableStateOf(false) }
+    var showTermuxSetupDialog by remember { mutableStateOf(false) }
+    var showLocalHistoryDialog by remember { mutableStateOf(false) }
+    var showMoreMenuDropdown by remember { mutableStateOf(false) }
+    var isPanelPinned by remember { mutableStateOf(true) }
     var vpsUser by remember { mutableStateOf("") }
     var vpsPort by remember { mutableStateOf("22") }
 
@@ -233,10 +259,18 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                     }
                     Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "🐾 Meow Code",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = currentTheme.textPrimary
+                        text = "MEOW STUDIO",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontFamily = FontFamily.Monospace,
+                        color = currentTheme.accent,
+                        style = TextStyle(
+                            shadow = Shadow(
+                                color = currentTheme.accent.copy(alpha = 0.6f),
+                                offset = Offset(0f, 0f),
+                                blurRadius = 12f
+                            )
+                        )
                     )
                 }
 
@@ -415,7 +449,8 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     onCreateFile = { showCreateFileDialog = true },
                                     onCreateFolder = { showCreateFolderDialog = true },
                                     onSelectFile = { viewModel.selectFile(it) },
-                                    onDeleteFile = { path, isDir -> viewModel.deleteFile(path, isDir) }
+                                    onDeleteFile = { path, isDir -> viewModel.deleteFile(path, isDir) },
+                                    viewModel = viewModel
                                 )
                                 "search" -> SearchPanel(
                                     query = searchQuery,
@@ -636,77 +671,243 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     }
                                 }
 
-                                Row(
+                                if (isDebugActive) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF8B0000).copy(alpha = 0.15f))
+                                            .border(1.dp, Color.Red.copy(alpha = 0.35f))
+                                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(6.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Color.Red)
+                                            )
+                                            Text(
+                                                "DEBUGGING ● PID ${android.os.Process.myPid()}",
+                                                fontSize = 9.5.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.Red,
+                                                fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            TextButton(
+                                                onClick = { viewModel.stepOverDebug() },
+                                                modifier = Modifier.height(24.dp),
+                                                contentPadding = PaddingValues(horizontal = 4.dp)
+                                            ) {
+                                                Text("Step Over ↷", fontSize = 9.sp, color = currentTheme.accent)
+                                            }
+                                            TextButton(
+                                                onClick = { viewModel.stepIntoDebug() },
+                                                modifier = Modifier.height(24.dp),
+                                                contentPadding = PaddingValues(horizontal = 4.dp)
+                                            ) {
+                                                Text("Step Into ↴", fontSize = 9.sp, color = currentTheme.accent)
+                                            }
+                                            IconButton(
+                                                onClick = { viewModel.toggleDebugSession() },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.Red, modifier = Modifier.size(12.dp))
+                                            }
+                                        }
+                                    }
+                                }
+
+                                Column(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .weight(1f)
                                 ) {
-                                    // Left Pane: Code Editor with Line Numbers (takes half of width if split, or full width if not)
                                     Row(
                                         modifier = Modifier
+                                            .fillMaxWidth()
                                             .weight(1f)
-                                            .fillMaxHeight()
-                                            .then(
-                                                if (isSplitWebPreviewEnabled) Modifier.border(
-                                                    0.5.dp,
-                                                    currentTheme.textPrimary.copy(alpha = 0.15f)
-                                                ) else Modifier
-                                            )
                                     ) {
-                                        // Simulated Line Numbers column
-                                        val linesCount = editorContent.split("\n").size.coerceAtLeast(1)
-                                        Column(
-                                            modifier = Modifier
-                                                .width(28.dp)
-                                                .fillMaxHeight()
-                                                .background(currentTheme.headerBg.copy(alpha = 0.15f))
-                                                .padding(vertical = 8.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally
-                                        ) {
-                                            for (i in 1..linesCount) {
-                                                Text(
-                                                    text = i.toString(),
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontSize = 11.sp,
-                                                    color = currentTheme.textPrimary.copy(alpha = 0.25f)
-                                                )
-                                            }
-                                        }
-
-                                        // Real Interactive Text Field Editor space
-                                        BasicTextField(
-                                            value = editorContent,
-                                            onValueChange = { viewModel.updateEditorContent(it) },
-                                            textStyle = TextStyle(
-                                                color = currentTheme.textPrimary,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 13.sp,
-                                                lineHeight = 18.sp
-                                            ),
-                                            cursorBrush = SolidColor(currentTheme.accent),
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(8.dp)
-                                                .testTag("code_editor_field")
-                                        )
-                                    }
-
-                                    if (isSplitWebPreviewEnabled) {
-                                        // Vertical dark line dividing split pane
-                                        Box(
-                                            modifier = Modifier
-                                                .width(1.dp)
-                                                .fillMaxHeight()
-                                                .background(currentTheme.headerBg)
-                                        )
-
-                                        // Right Pane: Live web browser preview frame
-                                        SplitBrowserPreviewFrame(
-                                            viewModel = viewModel,
-                                            theme = currentTheme,
+                                        // Left Pane: Code Editor with Line Numbers (takes half of width if split, or full width if not)
+                                        Row(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .fillMaxHeight()
+                                                .then(
+                                                    if (isSplitWebPreviewEnabled) Modifier.border(
+                                                        0.5.dp,
+                                                        currentTheme.textPrimary.copy(alpha = 0.15f)
+                                                    ) else Modifier
+                                                )
+                                        ) {
+                                            // Interactive Line Numbers (toggling breakpoints)
+                                            val linesCount = editorContent.split("\n").size.coerceAtLeast(1)
+                                            Column(
+                                                modifier = Modifier
+                                                    .width(36.dp)
+                                                    .fillMaxHeight()
+                                                    .background(currentTheme.headerBg.copy(alpha = 0.15f))
+                                                    .padding(vertical = 4.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                for (i in 1..linesCount) {
+                                                    val pathKey = selectedPath ?: ""
+                                                    val hasBreakpoint = breakpoints[pathKey]?.contains(i) == true
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .height(18.dp)
+                                                            .clickable { viewModel.toggleBreakpoint(pathKey, i) }
+                                                            .padding(horizontal = 4.dp)
+                                                    ) {
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(6.dp)
+                                                                .clip(CircleShape)
+                                                                .background(if (hasBreakpoint) Color.Red else Color.Transparent)
+                                                        )
+                                                        Text(
+                                                            text = i.toString(),
+                                                            fontFamily = FontFamily.Monospace,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = if (hasBreakpoint) FontWeight.Bold else FontWeight.Normal,
+                                                            color = if (hasBreakpoint) Color.Red else currentTheme.textPrimary.copy(alpha = 0.25f),
+                                                            modifier = Modifier.weight(1f),
+                                                            textAlign = androidx.compose.ui.text.style.TextAlign.End
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Real Interactive Text Field Editor space
+                                            BasicTextField(
+                                                value = editorContent,
+                                                onValueChange = { viewModel.updateEditorContent(it) },
+                                                textStyle = TextStyle(
+                                                    color = currentTheme.textPrimary,
+                                                    fontFamily = FontFamily.Monospace,
+                                                    fontSize = 13.sp,
+                                                    lineHeight = 18.sp
+                                                ),
+                                                cursorBrush = SolidColor(currentTheme.accent),
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(8.dp)
+                                                    .testTag("code_editor_field")
+                                              )
+                                        }
+
+                                        if (isSplitWebPreviewEnabled) {
+                                            // Vertical dark line dividing split pane
+                                            Box(
+                                                modifier = Modifier
+                                                    .width(1.dp)
+                                                    .fillMaxHeight()
+                                                    .background(currentTheme.headerBg)
+                                            )
+
+                                            // Right Pane: Live web browser preview frame
+                                            SplitBrowserPreviewFrame(
+                                                viewModel = viewModel,
+                                                theme = currentTheme,
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                            )
+                                        }
+                                    }
+
+                                    // Docked Custom Keyboard Helpers
+                                    if (isMeowKeyboardEnabled) {
+                                        MeowProgrammingKeyboard(
+                                            viewModel = viewModel,
+                                            theme = currentTheme,
+                                            isCodePad = isCodePadMode,
+                                            suggestions = keyboardSuggestions
+                                        )
+                                    }
+                                }
+
+                                // Pinned Professional Status Bar
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(22.dp)
+                                        .background(currentTheme.headerBg)
+                                        .border(BorderStroke(1.dp, currentTheme.border))
+                                        .padding(horizontal = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        Text(
+                                            text = "STATUS: READY",
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = currentTheme.accent,
+                                            style = TextStyle(
+                                                shadow = Shadow(
+                                                    color = currentTheme.accent.copy(alpha = 0.5f),
+                                                    offset = Offset(0f, 0f),
+                                                    blurRadius = 6f
+                                                )
+                                            )
+                                        )
+                                        val pathNonNull = selectedPath ?: ""
+                                        val detectedLang = pathNonNull.substringAfterLast('.').uppercase()
+                                        Text(
+                                            text = "Lang: $detectedLang",
+                                            fontSize = 9.sp,
+                                            color = currentTheme.textSecondary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Spaces: 4",
+                                            fontSize = 9.sp,
+                                            color = currentTheme.textSecondary
+                                        )
+                                        Text(
+                                            text = "UTF-8",
+                                            fontSize = 9.sp,
+                                            color = currentTheme.textSecondary
+                                        )
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            text = "Ln ${editorContent.split("\n").size}, Col ${editorContent.length}",
+                                            fontSize = 9.sp,
+                                            color = currentTheme.textPrimary.copy(alpha = 0.6f),
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .clip(CircleShape)
+                                                .background(if (isWebRunning) Color.Green else Color.Gray)
+                                        )
+                                        Text(
+                                            text = if (isWebRunning) "Port: 8080 (Live) ●" else "Server stopped",
+                                            fontSize = 9.sp,
+                                            color = if (isWebRunning) currentTheme.accent else currentTheme.textSecondary,
+                                            fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
@@ -721,10 +922,18 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                 verticalArrangement = Arrangement.Center
                             ) {
                                 Text(
-                                    text = "🐾 MEOW CODE IDE v1.0.0",
+                                    text = "MEOW STUDIO v2.5.0",
                                     fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = currentTheme.accent
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = currentTheme.accent,
+                                    style = TextStyle(
+                                        shadow = Shadow(
+                                            color = currentTheme.accent.copy(alpha = 0.6f),
+                                            offset = Offset(0f, 0f),
+                                            blurRadius = 12f
+                                        )
+                                    )
                                 )
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
@@ -896,10 +1105,14 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    // Git branch status
+                    // Git branch status (Interactive selection)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { showBranchSelectDialog = true }
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Source,
@@ -908,10 +1121,28 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                             modifier = Modifier.size(12.dp)
                         )
                         Text(
-                            text = "main",
+                            text = activeGitBranch,
                             fontSize = 10.sp,
                             color = currentTheme.textPrimary.copy(alpha = 0.8f),
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Meow Keyboard Toggle action
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { viewModel.toggleMeowKeyboard() }
+                            .background(if (isMeowKeyboardEnabled) currentTheme.accent.copy(alpha = 0.15f) else Color.Transparent)
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = "⌨️ Meow KB: " + if (isMeowKeyboardEnabled) "ON" else "OFF",
+                            fontSize = 9.sp,
+                            color = if (isMeowKeyboardEnabled) currentTheme.accent else currentTheme.textPrimary.copy(alpha = 0.5f),
+                            fontWeight = FontWeight.Bold
                         )
                     }
 
@@ -935,7 +1166,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
 
                     // AI companion mascot info
                     Text(
-                        text = "🐾 Mascot: $mascotExpression",
+                        text = "Companion: $mascotExpression",
                         fontSize = 10.sp,
                         color = currentTheme.accentSecondary
                     )
@@ -1165,10 +1396,10 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     if (showSaveSnippetDialog) {
         AlertDialog(
             onDismissRequest = { showSaveSnippetDialog = false },
-            title = { Text("Save Snippet to VIP Library 👑") },
+            title = { Text("Save Snippet to Workspace Library") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Customize and save the extracted AI code snippet into your secure VIP repository:", fontSize = 12.sp)
+                    Text("Customize and save the extracted AI code snippet into your secure local workspace index:", fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(4.dp))
                     OutlinedTextField(
                         value = snippetToSaveTitle,
@@ -1204,10 +1435,212 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                         showSaveSnippetDialog = false
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent)
-                ) { Text("Save Library 🐾", color = currentTheme.headerBg) }
+                ) { Text("Save Snippet", color = currentTheme.headerBg) }
             },
             dismissButton = {
                 TextButton(onClick = { showSaveSnippetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Interactive Dialog 1: Switch Git Branch Dialog
+    if (showBranchSelectDialog) {
+        val branchList = listOf("main", "development", "bugfix-termux-sync", "feature-offline-ai")
+        AlertDialog(
+            onDismissRequest = { showBranchSelectDialog = false },
+            title = { Text("Switch Git Branch 🌿") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Select a branch to checkout inside the active workspace repository:", fontSize = 12.sp)
+                    branchList.forEach { branch ->
+                        val isCurrent = activeGitBranch == branch
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(if (isCurrent) currentTheme.accent.copy(alpha = 0.15f) else currentTheme.cardBg)
+                                .clickable {
+                                    viewModel.changeGitBranch(branch)
+                                    showBranchSelectDialog = false
+                                }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "🌿 $branch",
+                                fontSize = 12.sp,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isCurrent) currentTheme.accent else currentTheme.textPrimary
+                            )
+                            if (isCurrent) {
+                                Text("Active ●", fontSize = 9.sp, color = currentTheme.accent, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBranchSelectDialog = false }) { Text("Close") }
+            }
+        )
+    }
+
+    // Interactive Dialog 2: Termux Environment Setup Guide
+    if (showTermuxSetupDialog) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        AlertDialog(
+            onDismissRequest = { showTermuxSetupDialog = false },
+            title = { Text("Termux IDE Environment Setup Guide 📱") },
+            text = {
+                val scrollState = rememberScrollState()
+                Column(
+                    modifier = Modifier.verticalScroll(scrollState),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        "Meow Studio is engineered to work recursively with Termux on Android. Transform your device into a complete offline workstation in seconds!",
+                        fontSize = 12.sp,
+                        color = currentTheme.textPrimary.copy(alpha = 0.8f)
+                    )
+                    
+                    Text("1. DOWNLOAD & INSTALL TERMUX", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = currentTheme.accent)
+                    Text("Install the robust Termux APK from Github Releases or F-Droid to guarantee native package support.", fontSize = 11.sp)
+                    
+                    Text("2. GRANT PROJECTS STORAGE PERMISSIONS", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = currentTheme.accent)
+                    Text("Grant storage access to synchronize active scripts inside Termux terminal:\nrun 'termux-setup-storage'", fontSize = 11.sp)
+                    
+                    Text("3. DEPLOY COMPILERS & RUNTIMES", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = currentTheme.accent)
+                    Text("Build complete toolchains by executing this unified launcher script block inside Termux console:", fontSize = 11.sp)
+                    
+                    val setupScript = "pkg update && pkg install git python nodejs -y"
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(currentTheme.terminalBg)
+                            .border(1.dp, currentTheme.border, RoundedCornerShape(4.dp))
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = setupScript,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 11.sp,
+                            color = Color.Green
+                        )
+                    }
+
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                            val clip = android.content.ClipData.newPlainText("Termux Setup Command", setupScript)
+                            clipboard.setPrimaryClip(clip)
+                            android.widget.Toast.makeText(context, "Command copied! 🐾", android.widget.Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Copy Setup Command 📋", color = currentTheme.headerBg, fontWeight = FontWeight.Bold)
+                    }
+
+                    Text("4. RUN PYTHON WEBSERVER ON PORT 8080", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = currentTheme.accent)
+                    Text("Deploy live developer web previewing:\n'python -m http.server 8080'", fontSize = 11.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showTermuxSetupDialog = false }) { Text("Ready 🐾") }
+            }
+        )
+    }
+
+    // Interactive Dialog 3: Local File Backups History Rollback Dialog
+    if (showLocalHistoryDialog) {
+        val pathNonNull = selectedPath ?: ""
+        val historyList = localHistory[pathNonNull] ?: emptyList()
+        AlertDialog(
+            onDismissRequest = { showLocalHistoryDialog = false },
+            title = { Text("Local Backups & History 🔄") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Visual snapshots for: ${pathNonNull.substringAfterLast('/')}",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (historyList.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(120.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "No snapshots available for this session.\nStart typing inside the editor to generate automatic history backup chains!",
+                                fontSize = 11.sp,
+                                color = currentTheme.textPrimary.copy(alpha = 0.5f),
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    } else {
+                        val historyScroll = rememberScrollState()
+                        Column(
+                            modifier = Modifier
+                                .height(260.dp)
+                                .verticalScroll(historyScroll),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            historyList.reversed().forEachIndexed { idx, (timestamp, contentPrv) ->
+                                val timeStr = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+                                val lineCountPrv = contentPrv.split("\n").size
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(currentTheme.cardBg, RoundedCornerShape(6.dp))
+                                        .border(0.5.dp, currentTheme.border, RoundedCornerShape(6.dp))
+                                        .padding(10.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Snapshot: $timeStr",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = currentTheme.accent
+                                        )
+                                        Text(
+                                            text = "$lineCountPrv lines",
+                                            fontSize = 9.5.sp,
+                                            color = currentTheme.textSecondary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = contentPrv.take(120) + if (contentPrv.length > 120) "..." else "",
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = currentTheme.textPrimary.copy(alpha = 0.6f)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            viewModel.restoreBackup(pathNonNull, timestamp)
+                                            showLocalHistoryDialog = false
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accentSecondary),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text("Rollback Code to Snapshot 🔄", color = Color.White, fontSize = 10.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLocalHistoryDialog = false }) { Text("Close") }
             }
         )
     }
@@ -1380,7 +1813,7 @@ fun SnippetsPanel(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("New Code Snippet 👑", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.accent)
+                        Text("New Code Snippet", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = theme.accent)
                         IconButton(
                             onClick = { showCreateForm = false },
                             modifier = Modifier.size(24.dp)
@@ -1638,8 +2071,17 @@ fun ExplorerPanel(
     onCreateFile: () -> Unit,
     onCreateFolder: () -> Unit,
     onSelectFile: (String) -> Unit,
-    onDeleteFile: (String, Boolean) -> Unit
+    onDeleteFile: (String, Boolean) -> Unit,
+    viewModel: com.example.ui.MeowCodeViewModel
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var zipMessage by remember { mutableStateOf("") }
+    var folderFilter by remember { mutableStateOf("") }
+
+    val filteredFiles = remember(files, folderFilter) {
+        if (folderFilter.isEmpty()) files else files.filter { it.path.startsWith(folderFilter) }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1661,13 +2103,56 @@ fun ExplorerPanel(
             }
         }
 
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // Project Folder filtering bar (supporting "Open Folder" action metaphor)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(theme.cardBg, RoundedCornerShape(4.dp))
+                .border(0.5.dp, theme.border, RoundedCornerShape(4.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Folder,
+                contentDescription = "Folder Filter",
+                tint = theme.accent,
+                modifier = Modifier.size(12.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            BasicTextField(
+                value = folderFilter,
+                onValueChange = { folderFilter = it },
+                textStyle = TextStyle(color = theme.textPrimary, fontSize = 9.5.sp),
+                cursorBrush = SolidColor(theme.accent),
+                modifier = Modifier.weight(1f),
+                decorationBox = { innerTextField ->
+                    if (folderFilter.isEmpty()) {
+                        Text("Root filter (e.g. src/)", fontSize = 9.5.sp, color = theme.textSecondary.copy(alpha = 0.5f))
+                    }
+                    innerTextField()
+                }
+            )
+            if (folderFilter.isNotEmpty()) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Clear Range",
+                    tint = theme.textSecondary,
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clickable { folderFilter = "" }
+                )
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         LazyColumn(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            items(files) { file ->
+            items(filteredFiles) { file ->
                 val isSelected = selectedPath == file.path
                 Row(
                     modifier = Modifier
@@ -1702,11 +2187,79 @@ fun ExplorerPanel(
                 }
             }
         }
+
+        // --- EXPORT / IMPORT WORKSPACE ZIP TOOLBAR ---
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(theme.headerBg, RoundedCornerShape(6.dp))
+                .border(1.dp, theme.border, RoundedCornerShape(6.dp))
+                .padding(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                "WORKSPACE EXPORTER",
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                color = theme.accent,
+                letterSpacing = 0.5.sp
+            )
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Button(
+                    onClick = {
+                        val path = viewModel.exportWorkspaceToZipFile(context)
+                        zipMessage = if (path.isNotEmpty()) {
+                            "Exported code details to /files/project_export.zip"
+                        } else {
+                            "Failed to bundle workspace files to ZIP archive."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.accent),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(26.dp)
+                ) {
+                    Text("Export ZIP", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = theme.headerBg)
+                }
+
+                Button(
+                    onClick = {
+                        zipMessage = viewModel.importWorkspaceFromZipFile(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+                    shape = RoundedCornerShape(4.dp),
+                    border = BorderStroke(1.dp, theme.border),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(26.dp)
+                ) {
+                    Text("Decompress ZIP", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary)
+                }
+            }
+
+            if (zipMessage.isNotEmpty()) {
+                Text(
+                    text = zipMessage,
+                    fontSize = 8.5.sp,
+                    color = theme.textSecondary,
+                    lineHeight = 11.sp,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             "* Tip: long-click files to delete them.",
             fontSize = 9.sp,
-            color = theme.textPrimary.copy(alpha = 0.4f),
-            modifier = Modifier.padding(top = 4.dp)
+            color = theme.textPrimary.copy(alpha = 0.4f)
         )
     }
 }
@@ -1871,31 +2424,78 @@ fun ExtensionsPanel(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         items(extensions) { ext ->
+            val simulatedDownloads = remember(ext.id) {
+                when (ext.id) {
+                    "lang.python" -> "1.2M Downloads"
+                    "git.lens" -> "850K Downloads"
+                    "ai.meowmax" -> "650K Downloads"
+                    "theme.dracula" -> "420K Downloads"
+                    else -> "150K Downloads"
+                }
+            }
+            val stars = remember(ext.rating) {
+                "★".repeat(ext.rating.toInt().coerceIn(1, 5)) + "☆".repeat((5 - ext.rating.toInt()).coerceIn(0, 5))
+            }
+
             Card(
                 colors = CardDefaults.cardColors(
-                    containerColor = if (ext.isInstalled) theme.accent.copy(alpha = 0.12f) else theme.cardBg
+                    containerColor = theme.cardBg
                 ),
                 border = BorderStroke(
                     1.dp,
-                    if (ext.isInstalled) theme.accent.copy(alpha = 0.5f) else Color.Transparent
+                    if (ext.isInstalled) theme.accent else theme.border
                 ),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp)
             ) {
-                Column(modifier = Modifier.padding(10.dp)) {
+                Column(modifier = Modifier.padding(12.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            ext.name,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = theme.textPrimary
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = ext.name,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.textPrimary
+                            )
+                            // Clean Verified Badge
+                            Box(
+                                modifier = Modifier
+                                    .background(theme.accent.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CheckCircle,
+                                        contentDescription = "Verified",
+                                        tint = theme.accent,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = "Verified",
+                                        fontSize = 8.sp,
+                                        color = theme.accent,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+
+                        // Category Badge
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(4.dp))
@@ -1903,43 +2503,57 @@ fun ExtensionsPanel(
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
-                                ext.category,
-                                fontSize = 9.sp,
-                                color = theme.accent,
+                                ext.category.uppercase(),
+                                fontSize = 8.sp,
+                                color = theme.textPrimary.copy(alpha = 0.6f),
                                 fontWeight = FontWeight.Bold
                             )
                         }
                     }
+
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        ext.description,
+                        text = ext.description,
                         fontSize = 11.sp,
-                        color = theme.textPrimary.copy(alpha = 0.61f),
+                        color = theme.textSecondary,
                         lineHeight = 15.sp
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Spacer(modifier = Modifier.height(8.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "Author: ${ext.author} • ⭐ ${ext.rating}",
-                            fontSize = 10.sp,
-                            color = theme.textPrimary.copy(alpha = 0.4f)
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = "Version ${ext.version} • $simulatedDownloads",
+                                fontSize = 10.sp,
+                                color = theme.textPrimary.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "Rating: $stars (${ext.rating})",
+                                fontSize = 10.sp,
+                                color = Color(0xFFFFD166), // Gold for star ratings
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
                         Button(
                             onClick = { onToggle(ext.id) },
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (ext.isInstalled) Color.Gray else theme.accent
+                                containerColor = if (ext.isInstalled) Color(0xFFEF4444) else theme.accent
                             ),
-                            contentPadding = PaddingValues(horizontal = 10.dp),
-                            modifier = Modifier.height(28.dp)
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp),
+                            modifier = Modifier.height(26.dp)
                         ) {
                             Text(
                                 text = if (ext.isInstalled) "Uninstall" else "Install",
-                                fontSize = 10.5.sp,
-                                color = if (ext.isInstalled) Color.White else theme.headerBg
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.headerBg
                             )
                         }
                     }
@@ -1960,19 +2574,92 @@ fun AiAssistantPanel(
     onApplyCode: (String) -> Unit,
     onSaveSnippet: (String) -> Unit
 ) {
+    var selectedEngine by remember { mutableStateOf("Gemini 2.5 Flash") }
+    var showEngineMenu by remember { mutableStateOf(false) }
+    val engineOptions = listOf("Gemini 2.5 Flash", "DeepSeek R1 Pro", "GPT-4o Enterprise", "Claude 3.5 Sonnet")
+
     Column(modifier = Modifier.fillMaxSize()) {
-        Box(
+        // --- High-End AI Header Bar with Model Dropdown ---
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(theme.headerBg)
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(
-                "🤖 Assistant Engine: $model",
-                fontSize = 10.sp,
-                color = theme.accent,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(theme.accent)
+                )
+                Text(
+                    text = "MEOW AI ENGINE",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontFamily = FontFamily.Monospace,
+                    color = theme.accent,
+                    style = TextStyle(
+                        shadow = Shadow(
+                            color = theme.accent.copy(alpha = 0.5f),
+                            offset = Offset(0f, 0f),
+                            blurRadius = 8f
+                        )
+                    )
+                )
+            }
+
+            Box {
+                Row(
+                    modifier = Modifier
+                        .background(theme.cardBg, RoundedCornerShape(4.dp))
+                        .border(0.5.dp, theme.border, RoundedCornerShape(4.dp))
+                        .clickable { showEngineMenu = true }
+                        .padding(horizontal = 6.dp, vertical = 3.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = selectedEngine,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = theme.textPrimary
+                    )
+                    Icon(
+                        imageVector = Icons.Default.ArrowDropDown,
+                        contentDescription = "Select Engine",
+                        tint = theme.accent,
+                        modifier = Modifier.size(10.dp)
+                    )
+                }
+
+                DropdownMenu(
+                    expanded = showEngineMenu,
+                    onDismissRequest = { showEngineMenu = false },
+                    modifier = Modifier.background(theme.cardBg)
+                ) {
+                    engineOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    text = option,
+                                    fontSize = 11.sp,
+                                    color = if (option == selectedEngine) theme.accent else theme.textPrimary
+                                )
+                            },
+                            onClick = {
+                                selectedEngine = option
+                                showEngineMenu = false
+                            }
+                        )
+                    }
+                }
+            }
         }
 
         LazyColumn(
@@ -1991,7 +2678,7 @@ fun AiAssistantPanel(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(if (isMe) theme.accent.copy(alpha = 0.2f) else theme.cardBg)
+                            .background(if (isMe) theme.accent.copy(alpha = 0.15f) else theme.cardBg)
                             .padding(8.dp)
                             .widthIn(max = 200.dp)
                     ) {
@@ -2000,7 +2687,7 @@ fun AiAssistantPanel(
                                 Text(
                                     text = msg.content,
                                     fontSize = 11.5.sp,
-                                    color = if (isMe) theme.accentSecondary else theme.textPrimary,
+                                    color = if (isMe) theme.textPrimary else theme.textPrimary.copy(alpha = 0.9f),
                                     lineHeight = 15.sp
                                 )
                             }
@@ -2012,9 +2699,9 @@ fun AiAssistantPanel(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Text(
-                                        text = "🐾 Apply directly",
+                                        text = "Insert Code",
                                         fontSize = 10.sp,
-                                        color = theme.textSecondary,
+                                        color = theme.accent,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier
                                             .clickable {
@@ -2024,9 +2711,9 @@ fun AiAssistantPanel(
                                             .padding(4.dp)
                                     )
                                     Text(
-                                        text = "👑 Save Snippet",
+                                        text = "Save Snippet",
                                         fontSize = 10.sp,
-                                        color = theme.accent,
+                                        color = theme.textSecondary,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier
                                             .clickable {
@@ -2050,7 +2737,7 @@ fun AiAssistantPanel(
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = theme.accent)
                 Spacer(modifier = Modifier.width(6.dp))
-                Text(isGenerating, fontSize = 10.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
+                Text("Engine active...", fontSize = 10.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
             }
         }
 
@@ -2069,7 +2756,7 @@ fun AiAssistantPanel(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .border(BorderStroke(1.dp, theme.cardBg), RoundedCornerShape(6.dp))
+                    .border(BorderStroke(1.dp, theme.border), RoundedCornerShape(6.dp))
                     .padding(horizontal = 8.dp, vertical = 6.dp)
                     .testTag("ai_prompt_input_field")
             )
@@ -2220,10 +2907,17 @@ fun SettingsPanel(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "👑 ANTIGRAVITY VIP HUD MODE",
+                        text = "ANTIGRAVITY HUD MODE",
                         fontSize = 11.5.sp,
                         fontWeight = FontWeight.Bold,
-                        color = theme.accent
+                        color = theme.accent,
+                        style = TextStyle(
+                            shadow = Shadow(
+                                color = theme.accent.copy(alpha = 0.5f),
+                                offset = Offset(0f, 0f),
+                                blurRadius = 8f
+                            )
+                        )
                     )
 
                     // Custom styled Neon Switch Button for maximal visual polish
@@ -2792,6 +3486,200 @@ fun SplitBrowserPreviewFrame(
                         },
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MeowProgrammingKeyboard(
+    viewModel: com.example.ui.MeowCodeViewModel,
+    theme: IdeTheme,
+    isCodePad: Boolean,
+    suggestions: List<String>
+) {
+    val normalSymbols = listOf(
+        "{", "}", "[", "]", "(", ")", ";", ":", "\"", "'", ",", ".", "/", "\\", "|", "&", "!", "=", "+", "-", "*", "%", "<", ">", "^", "~", "?"
+    )
+    val functionKeys = listOf("Tab", "Esc", "Ctrl", "Alt", "Shift")
+    val arrows = listOf(
+        "◀", "▶", "▲", "▼"
+    )
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(theme.headerBg)
+            .border(1.dp, theme.border)
+            .padding(vertical = 4.dp, horizontal = 6.dp)
+    ) {
+        // AI Suggestion Row (ghost suggestions)
+        if (suggestions.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp)
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Bolt,
+                    contentDescription = "AI ghost suggestion",
+                    tint = theme.accent,
+                    modifier = Modifier.size(11.dp)
+                )
+                suggestions.forEach { sug ->
+                    Box(
+                        modifier = Modifier
+                            .background(theme.accent.copy(alpha = 0.12f), RoundedCornerShape(4.dp))
+                            .border(0.5.dp, theme.accent.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
+                            .clickable { viewModel.selectKeyboardSuggestion(sug) }
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        Text(sug, fontSize = 9.sp, color = theme.textPrimary, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        // Keys Row or Grid Matrix
+        if (!isCodePad) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Special developer functions
+                functionKeys.forEach { key ->
+                    Box(
+                        modifier = Modifier
+                            .background(theme.cardBg, RoundedCornerShape(4.dp))
+                            .clickable {
+                                if (key == "Tab") {
+                                    viewModel.selectKeyboardSuggestion("    ")
+                                } else {
+                                    viewModel.selectKeyboardSuggestion("")
+                                }
+                            }
+                            .padding(horizontal = 7.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(key, fontSize = 10.sp, color = theme.accent, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    }
+                }
+
+                Box(modifier = Modifier.width(1.dp).height(16.dp).background(theme.border))
+
+                // Standard characters
+                normalSymbols.forEach { sym ->
+                    Box(
+                        modifier = Modifier
+                            .background(theme.bg, RoundedCornerShape(4.dp))
+                            .clickable { viewModel.selectKeyboardSuggestion(sym) }
+                            .padding(horizontal = 9.dp, vertical = 6.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(sym, fontSize = 11.sp, color = theme.textPrimary, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        } else {
+            // Full expanded Code Pad Matrix of 3 Rows
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                normalSymbols.chunked(9).forEach { rowList ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        rowList.forEach { key ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(theme.bg, RoundedCornerShape(4.dp))
+                                    .border(0.5.dp, theme.border)
+                                    .clickable { viewModel.selectKeyboardSuggestion(key) }
+                                    .padding(vertical = 8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(key, fontSize = 12.sp, color = theme.accent, fontWeight = FontWeight.ExtraBold, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        // Spacebar slider and controllers
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(if (isCodePad) theme.accent else theme.cardBg, RoundedCornerShape(4.dp))
+                    .clickable { viewModel.toggleCodePadMode() }
+                    .padding(horizontal = 8.dp, vertical = 5.dp)
+            ) {
+                Text(
+                    if (isCodePad) "ALPHA MATRIX" else "CODE PAD 🎛️",
+                    fontSize = 9.sp,
+                    color = if (isCodePad) theme.headerBg else theme.textPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(horizontal = 6.dp)
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(theme.cardBg)
+                    .border(0.5.dp, theme.border, RoundedCornerShape(4.dp))
+                    .clickable { viewModel.selectKeyboardSuggestion(" ") },
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = null, tint = theme.textSecondary.copy(alpha = 0.3f), modifier = Modifier.size(10.dp))
+                    Text(
+                        "DRAG SPACEBAR TO NAVIGATE",
+                        fontSize = 8.5.sp,
+                        color = theme.textSecondary,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp)
+                    )
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, tint = theme.textSecondary.copy(alpha = 0.3f), modifier = Modifier.size(10.dp))
+                }
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                arrows.forEach { symbol ->
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .background(theme.cardBg, RoundedCornerShape(4.dp))
+                            .clickable {
+                                viewModel.selectKeyboardSuggestion("")
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(symbol, fontSize = 10.sp, color = theme.textPrimary, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
