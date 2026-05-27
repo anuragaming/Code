@@ -5,63 +5,56 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
     
-    <!-- Code Bracket: < -->
+    <!-- Neon Corner Framing Brackets -->
     <path
-        android:pathData="M32,44 L22,54 L32,64"
-        android:strokeWidth="4"
+        android:pathData="M18,32 L18,18 L32,18"
+        android:strokeWidth="3.5"
         android:strokeColor="#38BDF8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="#00000000" />
 
-    <!-- Code Bracket: > -->
     <path
-        android:pathData="M76,44 L86,54 L76,64"
-        android:strokeWidth="4"
+        android:pathData="M76,18 L90,18 L90,32"
+        android:strokeWidth="3.5"
         android:strokeColor="#38BDF8"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:fillColor="#00000000" />
 
-    <!-- Cute Programming Cat Silhouette in the Center -->
     <path
-        android:fillColor="#A5B4FC"
-        android:pathData="M 39,44 
-                    L 42,28 
-                    L 50,37 
-                    H 58 
-                    L 66,28 
-                    L 69,44 
-                    C 74,44 76,52 74,58 
-                    C 72,64 68,66 54,66 
-                    C 40,66 36,64 34,58 
-                    C 32,52 34,44 39,44 
-                    Z" />
-
-    <!-- Developer Glasses -->
-    <path
-        android:pathData="M40,50 L49,50 A4,4 0 0,1 45,54 A4,4 0 0,1 41,50 M59,50 L68,50 A4,4 0 0,1 64,54 A4,4 0 0,1 60,50 M48,51 H60"
-        android:strokeWidth="2.2"
-        android:strokeColor="#1E1E2E"
+        android:pathData="M18,76 L18,90 L32,90"
+        android:strokeWidth="3.5"
+        android:strokeColor="#38BDF8"
         android:strokeLineCap="round"
+        android:strokeLineJoin="round"
         android:fillColor="#00000000" />
 
-    <!-- Cute Mouth/Nose details and Whiskers -->
     <path
-        android:pathData="M54,54 L52,56.5 L56,56.5 Z"
-        android:fillColor="#F472B6" />
-        
-    <!-- Whiskers Left -->
-    <path
-        android:pathData="M32,52 L26,51 M32,55 L25,55 M32,58 L26,59"
-        android:strokeWidth="1.5"
-        android:strokeColor="#A5B4FC"
-        android:strokeLineCap="round" />
+        android:pathData="M76,90 L90,90 L90,76"
+        android:strokeWidth="3.5"
+        android:strokeColor="#38BDF8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000" />
 
-    <!-- Whiskers Right -->
+    <!-- Outer Glow Ambient Star (Translucent Cyan Blue) -->
     <path
-        android:pathData="M76,52 L82,51 M76,55 L83,55 M76,58 L82,59"
-        android:strokeWidth="1.5"
-        android:strokeColor="#A5B4FC"
-        android:strokeLineCap="round" />
+        android:fillColor="#3038BDF8"
+        android:pathData="M54,20 L61,47 L88,54 L61,61 L54,88 L47,61 L20,54 L47,47 Z" />
+
+    <!-- Main Outer Diamond 4-Pointed Star -->
+    <path
+        android:fillColor="#38BDF8"
+        android:pathData="M54,24 L60,48 L84,54 L60,60 L54,84 L48,60 L24,54 L48,48 Z" />
+
+    <!-- Core Inner Star layer (Bright Cyan / White glow) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,36 L57.5,50.5 L72,54 L57.5,57.5 L54,72 L50.5,57.5 L36,54 L50.5,50.5 Z" />
+
+    <!-- Tiny central core speck -->
+    <path
+        android:fillColor="#E0F2FE"
+        android:pathData="M54,49 A5,5 0 1,1 53.99,49 Z" />
 </vector>

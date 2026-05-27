@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <!-- Hair Background (Long flowing strands) -->
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M30,30 C20,40 15,65 18,85 C22,88 28,88 30,80 C32,60 35,50 30,30" />
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M70,30 C80,40 85,65 82,85 C78,88 72,88 70,80 C68,60 65,50 70,30" />
+
+    <!-- Face Base -->
+    <path
+        android:fillColor="#FEE2E2"
+        android:pathData="M30,40 C30,25 70,25 70,40 C70,58 65,72 50,75 C35,72 30,58 30,40 Z" />
+
+    <!-- Blush Cheeks -->
+    <path
+        android:fillColor="#FDA4AF"
+        android:pathData="M33,52 A6,5 0 1,0 45,52 A6,5 0 1,0 33,52 Z" />
+    <path
+        android:fillColor="#FDA4AF"
+        android:pathData="M55,52 A6,5 0 1,0 67,52 A6,5 0 1,0 55,52 Z" />
+
+    <!-- Cute Anime Eyes (Under Glasses) -->
+    <!-- Left Eye -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M36,46 C38,44 42,44 44,46"
+        android:strokeWidth="2"
+        android:strokeColor="#1E293B" />
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M37,47 A3,4.5 0 1,0 43,47 A3,4.5 0 1,0 37,47 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,46 A1,1 0 1,0 40,46 A1,1 0 1,0 38,46 Z" />
+
+    <!-- Right Eye -->
+    <path
+        android:fillColor="#1E293B"
+        android:pathData="M56,46 C58,44 62,44 64,46"
+        android:strokeWidth="2"
+        android:strokeColor="#1E293B" />
+    <path
+        android:fillColor="#1D4ED8"
+        android:pathData="M57,47 A3,4.5 0 1,0 63,47 A3,4.5 0 1,0 57,47 Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M58,46 A1,1 0 1,0 60,46 A1,1 0 1,0 58,46 Z" />
+
+    <!-- Hair (Sides & Bangs covering ears/face edges) -->
+    <path
+        android:fillColor="#CBD5E1"
+        android:pathData="M50,15 C26,15 24,35 25,48 C26,55 28,68 28,74 C31,73 32,68 31,58 C30,45 32,38 50,30 C68,38 70,45 69,58 C68,68 69,73 72,74 C72,68 74,55 75,48 C76,35 74,15 50,15 Z" />
+
+    <!-- Sharp Anime Bangs pointing downwards -->
+    <path
+        android:fillColor="#E2E8F0"
+        android:pathData="M36,25 L40,42 L43,26 L49,44 L52,26 L58,42 L62,25 Z" />
+
+    <!-- Redundant hair stroke highlights -->
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M24,40 C22,50 21,60 25,70 C25,70 24,60 26,45 Z" />
+    <path
+        android:fillColor="#94A3B8"
+        android:pathData="M76,40 C78,50 79,60 75,70 C75,70 76,60 74,45 Z" />
+
+    <!-- Large Circular Glasses Frames (Overlay) -->
+    <!-- Left Frame -->
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="3.5"
+        android:fillColor="#00000000"
+        android:pathData="M40,50 A8.5,8.5 0 1,0 40.01,50 Z" />
+    <!-- Right Frame -->
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="3.5"
+        android:fillColor="#00000000"
+        android:pathData="M60,50 A8.5,8.5 0 1,0 60.01,50 Z" />
+    <!-- Bridge -->
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="3"
+        android:fillColor="#00000000"
+        android:pathData="M48.5,49 L51.5,49" />
+    <!-- Cute side frames whiskers on glasses -->
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M28,48 L31.5,49" />
+    <path
+        android:strokeColor="#0F172A"
+        android:strokeWidth="2"
+        android:fillColor="#00000000"
+        android:pathData="M68.5,49 L72,48" />
+
+    <!-- Cute Toast in Mouth (Biting) -->
+    <!-- Toast Crust -->
+    <path
+        android:fillColor="#B45309"
+        android:pathData="M38,65 C38,62 44,60 50,60 C56,60 62,62 62,65 L60,82 C60,85 55,86 50,86 C45,86 40,85 40,82 Z" />
+    <!-- Toast Crumb soft interior -->
+    <path
+        android:fillColor="#FEF08A"
+        android:pathData="M40,66 C40,63 45,61.5 50,61.5 C55,61.5 60,63 60,66 L58.5,80 C58.5,83 54,84 50,84 C46,84 41.5,83 41.5,80 Z" />
+    <!-- Cute Butter Toast Center (Frog/Teddy shape Yolk in user image) -->
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M46,70 C44,70 43,72 45,74 C47,76 53,76 55,74 C57,72 56,70 54,70 C53,70 52,71 50,71 C48,71 47,70 46,70 Z" />
+    <path
+        android:fillColor="#FBBF24"
+        android:pathData="M47,71 C46.5,71 46,72 47,73 C48,74 52,74 53,73 C54,72 53.5,71 53,71 C52,71 51.5,71.5 50,71.5 C48.5,71.5 48,71 47,71 Z" />
+
+    <!-- Cute Light Green Frog Hairclip -->
+    <path
+        android:fillColor="#4ADE80"
+        android:pathData="M68,26 C68,28 72,30 74,27 C76,27 78,25 76,23 C74,21 70,22 68,26 Z" />
+    <path
+        android:fillColor="#15803D"
+        android:pathData="M70,25 A0.8,0.8 0 1,0 71.6,25 A0.8,0.8 0 1,0 70,25 Z" />
+    <path
+        android:fillColor="#15803D"
+        android:pathData="M73,25 A0.8,0.8 0 1,0 74.6,25 A0.8,0.8 0 1,0 73,25 Z" />
+    <path
+        android:fillColor="#F87171"
+        android:pathData="M69,27 A0.6,0.5 0 1,0 70.2,27 A0.6,0.5 0 1,0 69,27 Z" />
+    <path
+        android:fillColor="#F87171"
+        android:pathData="M74,27 A0.6,0.5 0 1,0 75.2,27 A0.6,0.5 0 1,0 74,27 Z" />
+
+</vector>

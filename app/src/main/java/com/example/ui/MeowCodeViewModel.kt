@@ -124,7 +124,7 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
 
     // AI Assistant states
     private val _aiChatHistory = MutableStateFlow<List<ChatMessage>>(listOf(
-        ChatMessage("assistant", "🐾 Hello! I am MeowCoder, your AI Programming companion. Ask me to write code, create scripts, review errors, or search your workspace!")
+        ChatMessage("assistant", "🍞 Hello! I am AmiCoder, your AI Programming companion. Ask me to write code, create scripts, review errors, or search your workspace!")
     ))
     val aiChatHistory: StateFlow<List<ChatMessage>> = _aiChatHistory.asStateFlow()
 
@@ -588,10 +588,8 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     fun sendAiPrompt(prompt: String) {
         if (prompt.trim().isEmpty() || _aiIsGenerating.value) return
 
-        val originalHistory = _aiChatHistory.value.toMutableList()
-        originalHistory.add(ChatMessage("user", prompt))
-        _aiChatHistory.value = originalHistory
-
+        // Create a completely new list so StateFlow triggers an immediate emission
+        _aiChatHistory.value = _aiChatHistory.value + ChatMessage("user", prompt)
         _aiIsGenerating.value = true
 
         viewModelScope.launch {
@@ -616,8 +614,7 @@ $filesContext"""
                 systemInstruction = systemInstruction
             )
 
-            originalHistory.add(ChatMessage("assistant", response))
-            _aiChatHistory.value = originalHistory
+            _aiChatHistory.value = _aiChatHistory.value + ChatMessage("assistant", response)
             _aiIsGenerating.value = false
         }
     }

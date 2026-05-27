@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -36,6 +37,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -55,6 +58,17 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.content.Intent
 import android.net.Uri
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
 
 class MainActivity : ComponentActivity() {
     private val viewModel: MeowCodeViewModel by viewModels()
@@ -199,6 +213,8 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     var showLocalHistoryDialog by remember { mutableStateOf(false) }
     var showMoreMenuDropdown by remember { mutableStateOf(false) }
     var isPanelPinned by remember { mutableStateOf(true) }
+    var isWordWrapEnabled by remember { mutableStateOf(true) }
+    var isSyntaxHighlightingEnabled by remember { mutableStateOf(true) }
     var vpsUser by remember { mutableStateOf("") }
     var vpsPort by remember { mutableStateOf("22") }
 
@@ -397,6 +413,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                 Triple("web", Icons.Default.Language, "Localhost Web"),
                                 Triple("snippets", Icons.Default.Bookmark, "Snippet Library"),
                                 Triple("vps", Icons.Default.Terminal, "VPS SSH Profiles"),
+                                Triple("hosting", Icons.Default.Dns, "24/7 Hosting Runner"),
                                 Triple("settings", Icons.Default.Settings, "Core Settings")
                             )
 
@@ -507,6 +524,9 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     isAntigravityHudEnabled = isAntigravityHudEnabled,
                                     onToggleAntigravityHud = { viewModel.toggleAntigravityHud() },
                                     onUpdateSettings = { url, key, m -> viewModel.updateAiSettings(url, key, m) }
+                                )
+                                "hosting" -> HostingPanel(
+                                    theme = currentTheme
                                 )
                             }
                         }
@@ -645,6 +665,48 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                         }
 
                                         Spacer(modifier = Modifier.width(4.dp))
+
+                                         // Word Wrap Toggle button
+                                         IconButton(
+                                             onClick = { isWordWrapEnabled = !isWordWrapEnabled },
+                                             modifier = Modifier
+                                                 .size(28.dp)
+                                                 .background(
+                                                     if (isWordWrapEnabled) currentTheme.accent.copy(alpha = 0.15f) 
+                                                     else Color.Transparent, 
+                                                     RoundedCornerShape(4.dp)
+                                                 )
+                                         ) {
+                                             Icon(
+                                                 imageVector = Icons.Default.WrapText,
+                                                 contentDescription = "Toggle Word Wrap",
+                                                 tint = if (isWordWrapEnabled) currentTheme.accent else currentTheme.textPrimary.copy(alpha = 0.5f),
+                                                 modifier = Modifier.size(15.dp)
+                                             )
+                                         }
+
+                                         Spacer(modifier = Modifier.width(2.dp))
+
+                                         // Syntax Highlight Toggle button
+                                         IconButton(
+                                             onClick = { isSyntaxHighlightingEnabled = !isSyntaxHighlightingEnabled },
+                                             modifier = Modifier
+                                                 .size(28.dp)
+                                                 .background(
+                                                     if (isSyntaxHighlightingEnabled) currentTheme.accent.copy(alpha = 0.15f) 
+                                                     else Color.Transparent, 
+                                                     RoundedCornerShape(4.dp)
+                                                 )
+                                         ) {
+                                             Icon(
+                                                 imageVector = Icons.Default.Brush,
+                                                 contentDescription = "Toggle Syntax Highlighting",
+                                                 tint = if (isSyntaxHighlightingEnabled) currentTheme.accent else currentTheme.textPrimary.copy(alpha = 0.5f),
+                                                 modifier = Modifier.size(15.dp)
+                                             )
+                                         }
+
+                                         Spacer(modifier = Modifier.width(2.dp))
 
                                         IconButton(
                                             onClick = { viewModel.applyUndo() },
@@ -791,21 +853,37 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                             }
 
                                             // Real Interactive Text Field Editor space
-                                            BasicTextField(
-                                                value = editorContent,
-                                                onValueChange = { viewModel.updateEditorContent(it) },
-                                                textStyle = TextStyle(
-                                                    color = currentTheme.textPrimary,
-                                                    fontFamily = FontFamily.Monospace,
-                                                    fontSize = 13.sp,
-                                                    lineHeight = 18.sp
-                                                ),
-                                                cursorBrush = SolidColor(currentTheme.accent),
+                                            val hScrollState = rememberScrollState()
+                                            Box(
                                                 modifier = Modifier
-                                                    .fillMaxSize()
+                                                    .weight(1f)
+                                                    .fillMaxHeight()
+                                                    .then(
+                                                        if (!isWordWrapEnabled) Modifier.horizontalScroll(hScrollState)
+                                                        else Modifier
+                                                    )
                                                     .padding(8.dp)
-                                                    .testTag("code_editor_field")
-                                              )
+                                            ) {
+                                                BasicTextField(
+                                                    value = editorContent,
+                                                    onValueChange = { viewModel.updateEditorContent(it) },
+                                                    textStyle = TextStyle(
+                                                        color = currentTheme.textPrimary,
+                                                        fontFamily = FontFamily.Monospace,
+                                                        fontSize = 13.sp,
+                                                        lineHeight = 18.sp
+                                                    ),
+                                                    visualTransformation = if (isSyntaxHighlightingEnabled) {
+                                                        CodeSyntaxHighlighter(currentTheme)
+                                                    } else {
+                                                        VisualTransformation.None
+                                                    },
+                                                    cursorBrush = SolidColor(currentTheme.accent),
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .testTag("code_editor_field")
+                                                )
+                                            }
                                         }
 
                                         if (isSplitWebPreviewEnabled) {
@@ -1714,11 +1792,15 @@ fun MascotWidget(
                 modifier = Modifier
                     .size(42.dp)
                     .clip(CircleShape)
-                    .background(theme.headerBg)
+                    .background(Color.White)
                     .border(1.dp, theme.accentSecondary, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text("🐱", fontSize = 20.sp)
+                Image(
+                    painter = painterResource(id = R.drawable.ic_mascot),
+                    contentDescription = "AmiCoder VIP Mascot",
+                    modifier = Modifier.size(36.dp)
+                )
             }
 
             Column(modifier = Modifier.weight(1f)) {
@@ -1727,7 +1809,7 @@ fun MascotWidget(
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text(
-                        text = "Meowcoder VIP",
+                        text = "AmiCoder VIP 🍞",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = theme.accent
@@ -1748,7 +1830,7 @@ fun MascotWidget(
                     expression.contains("Meditating") -> "Inhale inspiration, exhale bugs. Focus on beautiful, responsive designs."
                     expression.contains("Glow") -> "Antigravity VIP Mode active. Ranh giới giữa code và nghệ thuật đã xóa nhòa!"
                     expression.contains("Amused") -> "Purr-fect logic! Web host serves our gorgeous creations smoothly."
-                    else -> "Ready to create! I am Meowcoder, built to secure and beautify your workflow."
+                    else -> "Ready to create! I am AmiCoder, built to secure and beautify your workflow."
                 }
                 
                 Text(
@@ -2662,66 +2744,111 @@ fun AiAssistantPanel(
             }
         }
 
+        val listState = rememberLazyListState()
+
+        LaunchedEffect(history.size) {
+            if (history.isNotEmpty()) {
+                listState.animateScrollToItem(history.size - 1)
+            }
+        }
+
         LazyColumn(
+            state = listState,
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(history) { msg ->
                 val isMe = msg.sender == "user"
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp),
                     horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
                 ) {
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isMe) theme.accent.copy(alpha = 0.15f) else theme.cardBg)
-                            .padding(8.dp)
-                            .widthIn(max = 200.dp)
+                            .clip(
+                                if (isMe) {
+                                    RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
+                                } else {
+                                    RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
+                                }
+                            )
+                            .background(
+                                if (isMe) theme.accent.copy(alpha = 0.18f) 
+                                else theme.cardBg
+                            )
+                            .border(
+                                width = 0.5.dp,
+                                color = if (isMe) theme.accent.copy(alpha = 0.4f) else theme.border,
+                                shape = if (isMe) {
+                                    RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
+                                } else {
+                                    RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
+                                }
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .widthIn(max = 240.dp)
                     ) {
                         Column {
                             SelectionContainer {
                                 Text(
                                     text = msg.content,
                                     fontSize = 11.5.sp,
-                                    color = if (isMe) theme.textPrimary else theme.textPrimary.copy(alpha = 0.9f),
-                                    lineHeight = 15.sp
+                                    color = theme.textPrimary,
+                                    lineHeight = 16.sp
                                 )
                             }
                             // Quick snippet extract injector actions if response has code
                             if (!isMe && (msg.content.contains("```") || msg.content.contains("def") || msg.content.contains("function"))) {
-                                Spacer(modifier = Modifier.height(6.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Row(
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(
-                                        text = "Insert Code",
-                                        fontSize = 10.sp,
-                                        color = theme.accent,
-                                        fontWeight = FontWeight.Bold,
+                                    Row(
                                         modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(theme.accent.copy(alpha = 0.12f))
                                             .clickable {
                                                 val parsedCode = extractMarkdownCodeSnippet(msg.content)
                                                 onApplyCode(parsedCode)
                                             }
-                                            .padding(4.dp)
-                                    )
-                                    Text(
-                                        text = "Save Snippet",
-                                        fontSize = 10.sp,
-                                        color = theme.textSecondary,
-                                        fontWeight = FontWeight.Bold,
+                                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.Code, contentDescription = null, tint = theme.accent, modifier = Modifier.size(10.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Insert Code",
+                                            fontSize = 9.sp,
+                                            color = theme.accent,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    Row(
                                         modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(theme.textSecondary.copy(alpha = 0.1f))
                                             .clickable {
                                                 val parsedCode = extractMarkdownCodeSnippet(msg.content)
                                                 onSaveSnippet(parsedCode)
                                             }
-                                            .padding(4.dp)
-                                    )
+                                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(10.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Save Snippet",
+                                            fontSize = 9.sp,
+                                            color = theme.textSecondary,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -2732,35 +2859,47 @@ fun AiAssistantPanel(
 
         if (isGenerating.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth().padding(4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp, horizontal = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(12.dp), strokeWidth = 1.5.dp, color = theme.accent)
+                CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp, color = theme.accent)
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Engine active...", fontSize = 10.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
+                Text("Thinking... 🐾", fontSize = 9.5.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
             }
         }
 
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(vertical = 6.dp)
+                .background(theme.headerBg, RoundedCornerShape(8.dp))
+                .border(0.5.dp, theme.border, RoundedCornerShape(8.dp))
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.Bottom
         ) {
             var inputPrompt by remember { mutableStateOf("") }
-            BasicTextField(
-                value = inputPrompt,
-                onValueChange = { inputPrompt = it },
-                textStyle = TextStyle(color = theme.textPrimary, fontSize = 12.sp),
-                cursorBrush = SolidColor(theme.accent),
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxHeight()
-                    .border(BorderStroke(1.dp, theme.border), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                    .testTag("ai_prompt_input_field")
-            )
-            Spacer(modifier = Modifier.width(4.dp))
+                    .padding(vertical = 4.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                if (inputPrompt.isEmpty()) {
+                    Text("Type / Ask AmiCoder ... 🍞", color = theme.textPrimary.copy(alpha = 0.35f), fontSize = 11.5.sp)
+                }
+                BasicTextField(
+                    value = inputPrompt,
+                    onValueChange = { inputPrompt = it },
+                    textStyle = TextStyle(color = theme.textPrimary, fontSize = 12.sp, lineHeight = 16.sp),
+                    cursorBrush = SolidColor(theme.accent),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("ai_prompt_input_field")
+                )
+            }
+            Spacer(modifier = Modifier.width(6.dp))
             IconButton(
                 onClick = {
                     if (inputPrompt.isNotEmpty()) {
@@ -2769,11 +2908,11 @@ fun AiAssistantPanel(
                     }
                 },
                 modifier = Modifier
-                    .size(34.dp)
+                    .size(28.dp)
                     .clip(CircleShape)
                     .background(theme.accent)
             ) {
-                Icon(Icons.Default.Send, "Send prompt", tint = theme.headerBg, modifier = Modifier.size(14.dp))
+                Icon(Icons.Default.Send, "Send prompt", tint = theme.headerBg, modifier = Modifier.size(12.dp))
             }
         }
     }
@@ -3679,6 +3818,451 @@ fun MeowProgrammingKeyboard(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(symbol, fontSize = 10.sp, color = theme.textPrimary, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+class CodeSyntaxHighlighter(val theme: IdeTheme) : VisualTransformation {
+    override fun filter(text: AnnotatedString): TransformedText {
+        val highlighted = highlightCode(text.text, theme)
+        return TransformedText(highlighted, OffsetMapping.Identity)
+    }
+}
+
+fun highlightCode(text: String, theme: IdeTheme): AnnotatedString {
+    return buildAnnotatedString {
+        append(text)
+        
+        val keywordColor = theme.accent
+        val stringColor = Color(0xFF10B981) 
+        val commentColor = Color(0xFF6B7280) 
+        val numberColor = Color(0xFFF59E0B) 
+        
+        val keywords = setOf(
+            "val", "var", "fun", "class", "import", "package", "return", "if", "else", "for", "while", "do",
+            "when", "try", "catch", "finally", "throw", "null", "true", "false", "this", "super", "break", "continue",
+            "as", "is", "in", "object", "interface", "def", "from", "and", "or", "not", "elif", "print",
+            "function", "const", "let", "yield", "await", "async", "public", "private", "protected", "void", "static"
+        )
+        
+        val wordRegex = Regex("\\b[a-zA-Z_][a-zA-Z0-9_]*\\b")
+        for (match in wordRegex.findAll(text)) {
+            val word = match.value
+            if (keywords.contains(word)) {
+                addStyle(
+                    SpanStyle(color = keywordColor, fontWeight = FontWeight.Bold),
+                    match.range.first,
+                    match.range.last + 1
+                )
+            }
+        }
+        
+        val stringRegex = Regex("\".*?\"|'.*?'|`.*?`|\\\".*?\\\"")
+        for (match in stringRegex.findAll(text)) {
+            addStyle(
+                SpanStyle(color = stringColor),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+        
+        val numberRegex = Regex("\\b\\d+(\\.\\d+)?\\b")
+        for (match in numberRegex.findAll(text)) {
+            addStyle(
+                SpanStyle(color = numberColor),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+        
+        val commentRegex = Regex("//.*|#.*|/\\*[\\s\\S]*?\\*/")
+        for (match in commentRegex.findAll(text)) {
+            addStyle(
+                SpanStyle(color = commentColor, fontStyle = FontStyle.Italic),
+                match.range.first,
+                match.range.last + 1
+            )
+        }
+    }
+}
+
+@Composable
+fun HostingPanel(
+    theme: IdeTheme
+) {
+    val context = LocalContext.current
+    val isRunning by BotRunnerService.isRunning.collectAsState()
+    val cpu by BotRunnerService.cpuUsage.collectAsState()
+    val ramBytes by BotRunnerService.ramUsageBytes.collectAsState()
+    val uptime by BotRunnerService.serviceUptimeSeconds.collectAsState()
+
+    val tgActive by BotRunnerService.telegramBotActive.collectAsState()
+    val dcActive by BotRunnerService.discordBotActive.collectAsState()
+    val cronActive by BotRunnerService.filesCronActive.collectAsState()
+    val scriptActive by BotRunnerService.customScriptActive.collectAsState()
+
+    val logs by BotRunnerService.consoleLogs.collectAsState()
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            val intent = Intent(context, BotRunnerService::class.java)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } else {
+            android.widget.Toast.makeText(context, "Notification permission is required for 24/7 background mode", android.widget.Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Format metrics
+    val ramMb = ramBytes / (1024f * 1024f)
+    val h = uptime / 3600
+    val m = (uptime % 3600) / 60
+    val s = uptime % 60
+    val uptimeStr = "%02d:%02d:%02d".format(h, m, s)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Upper Title block
+        Card(
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = BorderStroke(0.5.dp, theme.border),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(10.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Dns,
+                            contentDescription = "Hosting Manager",
+                            tint = theme.accent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "24/7 Background Host",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = theme.textPrimary
+                        )
+                    }
+
+                    // Indicator pulse
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val pulseColor = if (isRunning) Color(0xFF10B981) else Color(0xFFEF4444)
+                        val pulseText = if (isRunning) "ENGINE RUNNING" else "SUSPENDED"
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(pulseColor)
+                        )
+                        Text(
+                            text = pulseText,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = pulseColor,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "AmiCoder keeps your bots running inside an isolated foreground android service. Use on-device resources for local background scripts.",
+                    fontSize = 10.sp,
+                    color = theme.textSecondary,
+                    lineHeight = 13.sp
+                )
+            }
+        }
+
+        // Metrics Live Status
+        Card(
+            colors = CardDefaults.cardColors(containerColor = theme.bg),
+            border = BorderStroke(0.5.dp, theme.border),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("System Perf Analytics", fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = theme.accent)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Active Uptime", fontSize = 8.sp, color = theme.textSecondary)
+                        Text(uptimeStr, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary, fontFamily = FontFamily.Monospace)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("CPU Thread Load", fontSize = 8.sp, color = theme.textSecondary)
+                        Text("%.1f%%".format(cpu), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary, fontFamily = FontFamily.Monospace)
+                    }
+                }
+
+                // CPU Linear Progress Indicator bar
+                LinearProgressIndicator(
+                    progress = { (cpu / 100f).coerceIn(0f, 1f) },
+                    color = theme.accent,
+                    trackColor = theme.border,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Icon(Icons.Default.HourglassEmpty, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(10.dp))
+                        Text("Memory Allocation:", fontSize = 9.sp, color = theme.textSecondary)
+                    }
+                    Text("%.1f MB / 256.0 MB".format(ramMb), fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+
+        // Service controller button
+        Button(
+            onClick = {
+                if (isRunning) {
+                    val intent = Intent(context, BotRunnerService::class.java)
+                    context.stopService(intent)
+                } else {
+                    if (android.os.Build.VERSION.SDK_INT >= 33) {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+                        if (hasPermission) {
+                            val intent = Intent(context, BotRunnerService::class.java)
+                            context.startForegroundService(intent)
+                        } else {
+                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    } else {
+                        val intent = Intent(context, BotRunnerService::class.java)
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            context.startForegroundService(intent)
+                        } else {
+                            context.startService(intent)
+                        }
+                    }
+                }
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isRunning) Color(0xFFDC2626) else theme.accent
+            ),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(36.dp),
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isRunning) Icons.Default.Cancel else Icons.Default.PlayArrow,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
+                Text(
+                    text = if (isRunning) "STOP 24/7 HOST SERVICE" else "ACTIVATE 24/7 HOST SERVICE",
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.5.sp
+                )
+            }
+        }
+
+        // Task Configuration Switch Board
+        Card(
+            colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+            border = BorderStroke(0.5.dp, theme.border),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Select Bots & Tools to Deploy", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.accent)
+
+                // Bot 1
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("🤖 Telegram AutoReply Bot", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                        Text("Responds instantly to customer support queries.", fontSize = 8.5.sp, color = theme.textSecondary)
+                    }
+                    Switch(
+                        checked = tgActive,
+                        onCheckedChange = { BotRunnerService.telegramBotActive.value = it },
+                        modifier = Modifier.scale(0.7f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.accent,
+                            checkedTrackColor = theme.accent.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Bot 2
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("💬 Discord Status Telemetry", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                        Text("Feeds realtime IDE analytics to discord gateways.", fontSize = 8.5.sp, color = theme.textSecondary)
+                    }
+                    Switch(
+                        checked = dcActive,
+                        onCheckedChange = { BotRunnerService.discordBotActive.value = it },
+                        modifier = Modifier.scale(0.7f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.accent,
+                            checkedTrackColor = theme.accent.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Bot 3
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("📂 Workspace Backup Cron", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                        Text("Performs incremental zipped backups every minute.", fontSize = 8.5.sp, color = theme.textSecondary)
+                    }
+                    Switch(
+                        checked = cronActive,
+                        onCheckedChange = { BotRunnerService.filesCronActive.value = it },
+                        modifier = Modifier.scale(0.7f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.accent,
+                            checkedTrackColor = theme.accent.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+
+                // Bot 4
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("📜 Custom Script Runner", fontSize = 10.5.sp, fontWeight = FontWeight.SemiBold, color = theme.textPrimary)
+                        Text("Executes user configured background loops & servers.", fontSize = 8.5.sp, color = theme.textSecondary)
+                    }
+                    Switch(
+                        checked = scriptActive,
+                        onCheckedChange = { BotRunnerService.customScriptActive.value = it },
+                        modifier = Modifier.scale(0.7f),
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = theme.accent,
+                            checkedTrackColor = theme.accent.copy(alpha = 0.3f)
+                        )
+                    )
+                }
+            }
+        }
+
+        // Live Log Terminal Console
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Process Live Console Log 🖥️", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.accent)
+                Text(
+                    text = "Clear Logs",
+                    fontSize = 9.sp,
+                    color = theme.accent,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { BotRunnerService.clearLogs() }
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp)
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Color(0xFF0F172A))
+                    .border(0.5.dp, theme.border, RoundedCornerShape(6.dp))
+                    .padding(6.dp)
+            ) {
+                val lazyListState = rememberLazyListState()
+                
+                LaunchedEffect(logs.size) {
+                    if (logs.isNotEmpty()) {
+                        lazyListState.animateScrollToItem(logs.size - 1)
+                    }
+                }
+
+                LazyColumn(
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    items(logs) { logMsg ->
+                        val logColor = when {
+                            logMsg.contains("SYSTEM") -> Color(0xFFF59E0B)
+                            logMsg.contains("TELEGRAM") -> Color(0xFF38BDF8)
+                            logMsg.contains("DISCORD") -> Color(0xFF818CF8)
+                            logMsg.contains("CRON") -> Color(0xFF34D399)
+                            else -> Color(0xFFCBD5E1)
+                        }
+                        Text(
+                            text = logMsg,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 8.5.sp,
+                            color = logColor,
+                            lineHeight = 11.sp
+                        )
                     }
                 }
             }
