@@ -215,6 +215,8 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     var isPanelPinned by remember { mutableStateOf(true) }
     var isWordWrapEnabled by remember { mutableStateOf(true) }
     var isSyntaxHighlightingEnabled by remember { mutableStateOf(true) }
+    var showInlineEditDialog by remember { mutableStateOf(false) }
+    var inlineEditPrompt by remember { mutableStateOf("") }
     var vpsUser by remember { mutableStateOf("") }
     var vpsPort by remember { mutableStateOf("22") }
 
@@ -500,7 +502,8 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                         snippetToSaveContent = code
                                         snippetToSaveTitle = "AI Code " + java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
                                         showSaveSnippetDialog = true
-                                    }
+                                    },
+                                    viewModel = viewModel
                                 )
                                 "web" -> WebPanel(
                                     viewModel = viewModel,
@@ -730,6 +733,43 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                 modifier = Modifier.size(16.dp)
                                             )
                                         }
+
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        val inlineGenerating by viewModel.inlineEditIsGenerating.collectAsState()
+                                        AssistChip(
+                                            onClick = { showInlineEditDialog = true },
+                                            label = { 
+                                                Text(
+                                                    text = if (inlineGenerating) "AI Editing..." else "✨ Inline Edit",
+                                                    fontSize = 8.5.sp,
+                                                    color = if (inlineGenerating) currentTheme.accent else currentTheme.textPrimary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            },
+                                            colors = AssistChipDefaults.assistChipColors(
+                                                containerColor = if (inlineGenerating) currentTheme.accent.copy(alpha = 0.15f) else currentTheme.cardBg,
+                                                labelColor = currentTheme.textPrimary
+                                            ),
+                                            border = BorderStroke(0.5.dp, if (inlineGenerating) currentTheme.accent else currentTheme.border),
+                                            shape = RoundedCornerShape(4.dp),
+                                            leadingIcon = {
+                                                if (inlineGenerating) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(10.dp),
+                                                        strokeWidth = 1.dp,
+                                                        color = currentTheme.accent
+                                                    )
+                                                } else {
+                                                    Icon(
+                                                        imageVector = Icons.Default.AutoAwesome,
+                                                        contentDescription = "Inline AI Edit",
+                                                        tint = currentTheme.accent,
+                                                        modifier = Modifier.size(11.dp)
+                                                    )
+                                                }
+                                            },
+                                            modifier = Modifier.height(24.dp)
+                                        )
                                     }
                                 }
 
@@ -860,7 +900,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                     .fillMaxHeight()
                                                     .then(
                                                         if (!isWordWrapEnabled) Modifier.horizontalScroll(hScrollState)
-                                                        else Modifier
+                                                        else Modifier.fillMaxWidth()
                                                     )
                                                     .padding(8.dp)
                                             ) {
@@ -1517,6 +1557,76 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showSaveSnippetDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    // Interactive Dialog 1.5: Inline Quick AI Edit Dialog
+    if (showInlineEditDialog) {
+        val selectedFilePath by viewModel.selectedPath.collectAsState()
+        val context = LocalContext.current
+        AlertDialog(
+            onDismissRequest = { showInlineEditDialog = false },
+            containerColor = currentTheme.cardBg,
+            title = { 
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = currentTheme.accent, modifier = Modifier.size(20.dp))
+                    Text("Inline AI Quick Edit 🪄", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = currentTheme.textPrimary)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Editing Target: ${selectedFilePath ?: "No active file selected!"}",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = currentTheme.accent,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Instruct AmiCoder to edit this file directly. The modified result will overwrite the editor (fully undoable).",
+                        fontSize = 11.sp,
+                        color = currentTheme.textSecondary
+                    )
+                    
+                    OutlinedTextField(
+                        value = inlineEditPrompt,
+                        onValueChange = { inlineEditPrompt = it },
+                        placeholder = { Text("e.g. 'Add a calculate_average function', or 'Fix syntax errors on lines 10-14'", fontSize = 12.sp) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = currentTheme.textPrimary,
+                            unfocusedTextColor = currentTheme.textPrimary,
+                            focusedBorderColor = currentTheme.accent,
+                            unfocusedBorderColor = currentTheme.border
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val promptToSubmit = inlineEditPrompt
+                        showInlineEditDialog = false
+                        viewModel.executeInlineEdit(promptToSubmit) { message ->
+                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = currentTheme.accent),
+                    enabled = inlineEditPrompt.isNotBlank() && !selectedFilePath.isNullOrEmpty()
+                ) {
+                    Text("Apply Edit Directly 🚀", color = currentTheme.headerBg, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInlineEditDialog = false }) {
+                    Text("Cancel", color = currentTheme.textSecondary, fontSize = 11.sp)
+                }
             }
         )
     }
@@ -2654,11 +2764,13 @@ fun AiAssistantPanel(
     theme: IdeTheme,
     onSend: (String) -> Unit,
     onApplyCode: (String) -> Unit,
-    onSaveSnippet: (String) -> Unit
+    onSaveSnippet: (String) -> Unit,
+    viewModel: MeowCodeViewModel
 ) {
     var selectedEngine by remember { mutableStateOf("Gemini 2.5 Flash") }
     var showEngineMenu by remember { mutableStateOf(false) }
     val engineOptions = listOf("Gemini 2.5 Flash", "DeepSeek R1 Pro", "GPT-4o Enterprise", "Claude 3.5 Sonnet")
+    var activeTab by remember { mutableStateOf("chat") } // "chat" or "agent"
 
     Column(modifier = Modifier.fillMaxSize()) {
         // --- High-End AI Header Bar with Model Dropdown ---
@@ -2681,7 +2793,7 @@ fun AiAssistantPanel(
                         .background(theme.accent)
                 )
                 Text(
-                    text = "MEOW AI ENGINE",
+                    text = "AmiCoder AI CORE",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.Monospace,
@@ -2744,110 +2856,169 @@ fun AiAssistantPanel(
             }
         }
 
-        val listState = rememberLazyListState()
+        // --- High-End AI Tab Bar (Chat vs Agent) ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(theme.headerBg)
+                .border(BorderStroke(0.5.dp, theme.border))
+        ) {
+            val isChat = activeTab == "chat"
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { activeTab = "chat" }
+                    .background(if (isChat) theme.cardBg else Color.Transparent)
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Chat,
+                        contentDescription = null,
+                        modifier = Modifier.size(11.dp),
+                        tint = if (isChat) theme.accent else theme.textPrimary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = "AI CHAT 💬",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (isChat) theme.accent else theme.textPrimary.copy(alpha = 0.6f)
+                    )
+                }
+            }
 
-        LaunchedEffect(history.size) {
-            if (history.isNotEmpty()) {
-                listState.animateScrollToItem(history.size - 1)
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { activeTab = "agent" }
+                    .background(if (!isChat) theme.cardBg else Color.Transparent)
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Bolt,
+                        contentDescription = null,
+                        modifier = Modifier.size(11.dp),
+                        tint = if (!isChat) theme.accent else theme.textPrimary.copy(alpha = 0.5f)
+                    )
+                    Text(
+                        text = "AGENT MODE 🤖",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (!isChat) theme.accent else theme.textPrimary.copy(alpha = 0.6f)
+                    )
+                }
             }
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items(history) { msg ->
-                val isMe = msg.sender == "user"
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
-                ) {
-                    Box(
+        if (activeTab == "chat") {
+            val listState = rememberLazyListState()
+
+            LaunchedEffect(history.size) {
+                if (history.isNotEmpty()) {
+                    listState.animateScrollToItem(history.size - 1)
+                }
+            }
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(history) { msg ->
+                    val isMe = msg.sender == "user"
+                    Column(
                         modifier = Modifier
-                            .clip(
-                                if (isMe) {
-                                    RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
-                                } else {
-                                    RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
-                                }
-                            )
-                            .background(
-                                if (isMe) theme.accent.copy(alpha = 0.18f) 
-                                else theme.cardBg
-                            )
-                            .border(
-                                width = 0.5.dp,
-                                color = if (isMe) theme.accent.copy(alpha = 0.4f) else theme.border,
-                                shape = if (isMe) {
-                                    RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
-                                } else {
-                                    RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
-                                }
-                            )
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                            .widthIn(max = 240.dp)
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp),
+                        horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
                     ) {
-                        Column {
-                            SelectionContainer {
-                                Text(
-                                    text = msg.content,
-                                    fontSize = 11.5.sp,
-                                    color = theme.textPrimary,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                            // Quick snippet extract injector actions if response has code
-                            if (!isMe && (msg.content.contains("```") || msg.content.contains("def") || msg.content.contains("function"))) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(theme.accent.copy(alpha = 0.12f))
-                                            .clickable {
-                                                val parsedCode = extractMarkdownCodeSnippet(msg.content)
-                                                onApplyCode(parsedCode)
-                                            }
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Code, contentDescription = null, tint = theme.accent, modifier = Modifier.size(10.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Insert Code",
-                                            fontSize = 9.sp,
-                                            color = theme.accent,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                        Box(
+                            modifier = Modifier
+                                .clip(
+                                    if (isMe) {
+                                        RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
+                                    } else {
+                                        RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
                                     }
+                                )
+                                .background(
+                                    if (isMe) theme.accent.copy(alpha = 0.18f) 
+                                    else theme.cardBg
+                                )
+                                .border(
+                                    width = 0.5.dp,
+                                    color = if (isMe) theme.accent.copy(alpha = 0.4f) else theme.border,
+                                    shape = if (isMe) {
+                                        RoundedCornerShape(12.dp, 12.dp, 2.dp, 12.dp)
+                                    } else {
+                                        RoundedCornerShape(12.dp, 12.dp, 12.dp, 2.dp)
+                                    }
+                                )
+                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                .widthIn(max = 240.dp)
+                        ) {
+                            Column {
+                                SelectionContainer {
+                                    Text(
+                                        text = msg.content,
+                                        fontSize = 11.5.sp,
+                                        color = theme.textPrimary,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                                // Quick snippet extract injector actions if response has code
+                                if (!isMe && (msg.content.contains("```") || msg.content.contains("def") || msg.content.contains("function"))) {
+                                    Spacer(modifier = Modifier.height(8.dp))
                                     Row(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(4.dp))
-                                            .background(theme.textSecondary.copy(alpha = 0.1f))
-                                            .clickable {
-                                                val parsedCode = extractMarkdownCodeSnippet(msg.content)
-                                                onSaveSnippet(parsedCode)
-                                            }
-                                            .padding(horizontal = 6.dp, vertical = 3.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Icon(Icons.Default.ContentCopy, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(10.dp))
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "Save Snippet",
-                                            fontSize = 9.sp,
-                                            color = theme.textSecondary,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(theme.accent.copy(alpha = 0.12f))
+                                                .clickable {
+                                                    val parsedCode = extractMarkdownCodeSnippet(msg.content)
+                                                    onApplyCode(parsedCode)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Code, contentDescription = null, tint = theme.accent, modifier = Modifier.size(10.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Insert Code",
+                                                fontSize = 9.sp,
+                                                color = theme.accent,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(theme.textSecondary.copy(alpha = 0.1f))
+                                                .clickable {
+                                                    val parsedCode = extractMarkdownCodeSnippet(msg.content)
+                                                    onSaveSnippet(parsedCode)
+                                                }
+                                                .padding(horizontal = 6.dp, vertical = 3.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.ContentCopy, contentDescription = null, tint = theme.textSecondary, modifier = Modifier.size(10.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Save Snippet",
+                                                fontSize = 9.sp,
+                                                color = theme.textSecondary,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -2855,64 +3026,201 @@ fun AiAssistantPanel(
                     }
                 }
             }
-        }
 
-        if (isGenerating.isNotEmpty()) {
+            if (isGenerating.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp, horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp, color = theme.accent)
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Thinking... 🐾", fontSize = 9.5.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
+                }
+            }
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp, horizontal = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(vertical = 6.dp)
+                    .background(theme.headerBg, RoundedCornerShape(8.dp))
+                    .border(0.5.dp, theme.border, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.Bottom
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp, color = theme.accent)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Thinking... 🐾", fontSize = 9.5.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 6.dp)
-                .background(theme.headerBg, RoundedCornerShape(8.dp))
-                .border(0.5.dp, theme.border, RoundedCornerShape(8.dp))
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            var inputPrompt by remember { mutableStateOf("") }
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(vertical = 4.dp),
-                contentAlignment = Alignment.CenterStart
-            ) {
-                if (inputPrompt.isEmpty()) {
-                    Text("Type / Ask AmiCoder ... 🍞", color = theme.textPrimary.copy(alpha = 0.35f), fontSize = 11.5.sp)
+                var inputPrompt by remember { mutableStateOf("") }
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(vertical = 4.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (inputPrompt.isEmpty()) {
+                        Text("Type / Ask AmiCoder ... 🍞", color = theme.textPrimary.copy(alpha = 0.35f), fontSize = 11.5.sp)
+                    }
+                    BasicTextField(
+                        value = inputPrompt,
+                        onValueChange = { inputPrompt = it },
+                        textStyle = TextStyle(color = theme.textPrimary, fontSize = 12.sp, lineHeight = 16.sp),
+                        cursorBrush = SolidColor(theme.accent),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_prompt_input_field")
+                    )
                 }
-                BasicTextField(
-                    value = inputPrompt,
-                    onValueChange = { inputPrompt = it },
-                    textStyle = TextStyle(color = theme.textPrimary, fontSize = 12.sp, lineHeight = 16.sp),
-                    cursorBrush = SolidColor(theme.accent),
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(
+                    onClick = {
+                        if (inputPrompt.isNotEmpty()) {
+                            onSend(inputPrompt)
+                            inputPrompt = ""
+                        }
+                    },
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .background(theme.accent)
+                ) {
+                    Icon(Icons.Default.Send, "Send prompt", tint = theme.headerBg, modifier = Modifier.size(12.dp))
+                }
+            }
+        } else {
+            // --- AGENT MODE SUB PANEL ---
+            var agentInputGoal by remember { mutableStateOf("") }
+            val agentLogs by viewModel.agentConsoleLogs.collectAsState()
+            val agentIsRunning by viewModel.isAgentRunning.collectAsState()
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = theme.cardBg),
+                    border = BorderStroke(0.5.dp, theme.border),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "AmiCoder Agent Core 🚀",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.accent
+                            )
+                            if (agentIsRunning) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(5.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Green)
+                                    )
+                                    Text("RUNNING", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.Green, fontFamily = FontFamily.Monospace)
+                                }
+                            } else {
+                                Text("STANDBY", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary.copy(alpha = 0.4f), fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Agent mode analyzes your workspace context, plans multi-file edits, and writes files autonomously. Full automated generation!",
+                            fontSize = 9.sp,
+                            color = theme.textSecondary,
+                            lineHeight = 12.sp
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = agentInputGoal,
+                    onValueChange = { agentInputGoal = it },
+                    placeholder = { Text("Describe goal (e.g. 'Build a file reader in python' or 'Create game loop script')", fontSize = 11.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("ai_prompt_input_field")
+                        .height(64.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = theme.textPrimary,
+                        unfocusedTextColor = theme.textPrimary,
+                        focusedBorderColor = theme.accent,
+                        unfocusedBorderColor = theme.border
+                    ),
+                    enabled = !agentIsRunning
                 )
-            }
-            Spacer(modifier = Modifier.width(6.dp))
-            IconButton(
-                onClick = {
-                    if (inputPrompt.isNotEmpty()) {
-                        onSend(inputPrompt)
-                        inputPrompt = ""
+
+                Button(
+                    onClick = {
+                        if (agentInputGoal.isNotBlank()) {
+                            viewModel.executeAgentAutonomousTask(agentInputGoal)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(32.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (agentIsRunning) Color.Gray else theme.accent
+                    ),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(0.dp),
+                    enabled = !agentIsRunning && agentInputGoal.isNotBlank()
+                ) {
+                    Text(
+                        text = if (agentIsRunning) "AGENT RUNNING..." else "DEPLOY CODER AGENT 🚀",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (agentIsRunning) Color.LightGray else theme.headerBg
+                    )
+                }
+
+                Text("Autonomous Live Trace Console", fontSize = 9.5.sp, color = theme.accent, fontWeight = FontWeight.Bold)
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF090D16))
+                        .border(0.5.dp, theme.border, RoundedCornerShape(6.dp))
+                        .padding(6.dp)
+                ) {
+                    val terminalState = rememberLazyListState()
+                    LaunchedEffect(agentLogs.size) {
+                        if (agentLogs.isNotEmpty()) {
+                            terminalState.animateScrollToItem(agentLogs.size - 1)
+                        }
                     }
-                },
-                modifier = Modifier
-                    .size(28.dp)
-                    .clip(CircleShape)
-                    .background(theme.accent)
-            ) {
-                Icon(Icons.Default.Send, "Send prompt", tint = theme.headerBg, modifier = Modifier.size(12.dp))
+
+                    LazyColumn(
+                        state = terminalState,
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(agentLogs) { logMsg ->
+                            val terminalColor = when {
+                                logMsg.contains("[AGENT]") -> Color(0xFFFBBF24) // Yellow
+                                logMsg.contains("[PLANNER]") -> Color(0xFF38BDF8) // Blue
+                                logMsg.contains("[SCANNER]") -> Color(0xFF818CF8) // Purple
+                                logMsg.contains("[WRITER]") -> Color(0xFF34D399) // Green
+                                logMsg.contains("[ERROR]") -> Color(0xFFEF4444) // Red
+                                else -> Color(0xFFE2E8F0) // White/Slate
+                            }
+                            Text(
+                                text = logMsg,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 8.5.sp,
+                                color = terminalColor,
+                                lineHeight = 11.sp
+                            )
+                        }
+                    }
+                }
             }
         }
     }

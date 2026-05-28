@@ -142,6 +142,16 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
         .map { if (it) "Thinking... 🐾" else "" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    // Agent Mode & Inline AI States
+    private val _isAgentRunning = MutableStateFlow(false)
+    val isAgentRunning: StateFlow<Boolean> = _isAgentRunning.asStateFlow()
+
+    private val _agentConsoleLogs = MutableStateFlow<List<String>>(listOf("[INIT] AmiCoder Autonomous Agent standby. Ready to engineer!"))
+    val agentConsoleLogs: StateFlow<List<String>> = _agentConsoleLogs.asStateFlow()
+
+    private val _inlineEditIsGenerating = MutableStateFlow(false)
+    val inlineEditIsGenerating: StateFlow<Boolean> = _inlineEditIsGenerating.asStateFlow()
+
     // Terminals
     private val _terminalTabs = MutableStateFlow(listOf("Bash Terminal 🐾", "Python Console 🐍", "Node Runtime ⚡"))
     val terminalTabs: StateFlow<List<String>> = _terminalTabs.asStateFlow()
@@ -251,10 +261,45 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     fun updateEditorContent(newContent: String) {
         val current = _currentEditorContent.value
         if (current != newContent) {
+            var rawContent = newContent
+            
+            // Smart auto-indent on new line (Enter key)
+            if (newContent.length == current.length + 1) {
+                var diffIndex = -1
+                for (i in 0 until current.length) {
+                    if (current[i] != newContent[i]) {
+                        diffIndex = i
+                        break
+                    }
+                }
+                if (diffIndex == -1) {
+                    diffIndex = current.length
+                }
+                
+                if (diffIndex >= 0 && diffIndex < newContent.length && newContent[diffIndex] == '\n') {
+                    val precedingText = current.substring(0, diffIndex)
+                    val lastNewLine = precedingText.lastIndexOf('\n')
+                    val lineStart = if (lastNewLine == -1) 0 else lastNewLine + 1
+                    val precedingLine = precedingText.substring(lineStart)
+                    
+                    val leadingWhitespace = precedingLine.takeWhile { it == ' ' || it == '\t' }
+                    var extraIndent = ""
+                    val trimmed = precedingLine.trimEnd()
+                    if (trimmed.endsWith("{") || trimmed.endsWith(":") || trimmed.endsWith("(") || trimmed.endsWith("[")) {
+                        extraIndent = "    "
+                    }
+                    
+                    val indent = leadingWhitespace + extraIndent
+                    if (indent.isNotEmpty()) {
+                        rawContent = newContent.substring(0, diffIndex + 1) + indent + newContent.substring(diffIndex + 1)
+                    }
+                }
+            }
+
             undoStack.push(current)
             if (undoStack.size > 50) undoStack.removeAt(0)
             redoStack.clear()
-            _currentEditorContent.value = newContent
+            _currentEditorContent.value = rawContent
             
             // Debounce DB saves to optimize CPU/RAM overhead and prevent InputDispatcher crashes
             autoSaveJob?.cancel()
@@ -262,12 +307,12 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
                 kotlinx.coroutines.delay(1000)
                 val path = _selectedPath.value ?: return@launch
                 val file = workspaceFiles.value.find { it.path == path } ?: return@launch
-                repository.saveFile(path, file.name, file.parentPath, false, newContent)
+                repository.saveFile(path, file.name, file.parentPath, false, rawContent)
                 
                 // Add to live local history backups
                 val historyList = _localHistory.value[path]?.toMutableList() ?: mutableListOf()
-                if (historyList.isEmpty() || historyList.last().second != newContent) {
-                    historyList.add(Pair(System.currentTimeMillis(), newContent))
+                if (historyList.isEmpty() || historyList.last().second != rawContent) {
+                    historyList.add(Pair(System.currentTimeMillis(), rawContent))
                     if (historyList.size > 20) historyList.removeAt(0)
                     val updatedMap = _localHistory.value.toMutableMap()
                     updatedMap[path] = historyList
@@ -621,6 +666,175 @@ $filesContext"""
 
     fun applyAiCodeToEditor(code: String) {
         updateEditorContent(code)
+    }
+
+    fun executeInlineEdit(instruction: String, onComplete: (String) -> Unit) {
+        val path = _selectedPath.value
+        if (path.isNullOrEmpty()) {
+            onComplete("No active file is selected in the Editor!")
+            return
+        }
+        val fileContent = _currentEditorContent.value
+        _inlineEditIsGenerating.value = true
+
+        viewModelScope.launch {
+            val systemInstruction = """You are AmiCoder, an inline automated code editing assistant inside an Android IDE. 
+Your task is to modify the provided source code according to the instruction specified by the user.
+You MUST output ONLY the direct, fully updated complete code of the file. 
+DO NOT write any explanation, markdown formatting, or code fences (like ```kotlin). Just plain text containing only the updated source code."""
+
+            val prompt = "User instruction: $instruction\n\nOriginal file: $path\nContent:\n$fileContent"
+
+            val response = GeminiClient.generateContent(
+                prompt = prompt,
+                customUrl = _aiApiUrl.value,
+                customKey = _aiApiKey.value,
+                customModel = _aiModel.value,
+                systemInstruction = systemInstruction
+            )
+
+            // Clean up code block fences if any slipped through
+            var cleanedCode = response.trim()
+            if (cleanedCode.startsWith("```")) {
+                val lines = cleanedCode.lines()
+                if (lines.size >= 2) {
+                    val firstLine = lines.first()
+                    val lastLine = lines.last()
+                    if (firstLine.startsWith("```") && lastLine.startsWith("```")) {
+                        cleanedCode = lines.drop(1).dropLast(1).joinToString("\n")
+                    }
+                }
+            }
+
+            if (cleanedCode.isNotEmpty() && !cleanedCode.startsWith("Error:")) {
+                updateEditorContent(cleanedCode)
+                onComplete("AI direct edit successfully applied!")
+            } else {
+                onComplete("Failed to apply AI edit: $cleanedCode")
+            }
+            _inlineEditIsGenerating.value = false
+        }
+    }
+
+    fun executeAgentAutonomousTask(goal: String) {
+        if (goal.trim().isEmpty() || _isAgentRunning.value) return
+        _isAgentRunning.value = true
+        _agentConsoleLogs.value = listOf(
+            "[AGENT] Starting AmiCoder Autonomous Developer Agent core...",
+            "[PLANNER] Processing high-level user goal: \"$goal\"",
+            "[SCANNER] Scanning workspace directory structure and database context..."
+        )
+
+        viewModelScope.launch {
+            // Gather workspace text files to supply in system instruction context
+            val filesList = workspaceFiles.value
+            val filesContext = withContext(Dispatchers.IO) {
+                filesList
+                    .filter { !it.isDirectory && it.content.length < 3000 }
+                    .take(5)
+                    .joinToString("\n\n") { "File Path: ${it.path}\nContent:\n${it.content}" }
+            }
+
+            _agentConsoleLogs.value = _agentConsoleLogs.value + "[SCANNER] Found ${filesList.size} files/folders in workspace."
+            _agentConsoleLogs.value = _agentConsoleLogs.value + "[CODER] Planning actions and generating code securely via Gemini 3.5..."
+
+            val systemInstruction = """You are AmiCoder Autonomous Agent, an advanced software engineer capable of writing, designing and maintaining software files autonomously inside a virtual workspace IDE.
+Your task is to analyze the user's high-level goal, plan the specific file operations, write the code, and return a clean JSON payload.
+The current files in the workspace are:
+$filesContext
+
+You MUST return a valid, parsable JSON object of the following structure:
+{
+  "logs": [
+     "Sequential concise sentences of what files you are creating, what code logic you implemented, and why."
+  ],
+  "files": [
+     {
+        "name": "example_file.py",
+        "path": "example_file.py",
+        "content": "The complete, production-grade text/source code content of the file."
+     }
+  ]
+}
+
+Return ONLY this JSON block. DO NOT wrap with ```json or any markdown fences. If you cannot fulfill the request, return a json log with instructions why."""
+
+            val response = GeminiClient.generateContent(
+                prompt = goal,
+                customUrl = _aiApiUrl.value,
+                customKey = _aiApiKey.value,
+                customModel = _aiModel.value,
+                systemInstruction = systemInstruction
+            )
+
+            var cleaned = response.trim()
+            if (cleaned.startsWith("```")) {
+                cleaned = cleaned.removePrefix("```json").removePrefix("```xml").removePrefix("```").trim()
+                if (cleaned.endsWith("```")) {
+                    cleaned = cleaned.removeSuffix("```").trim()
+                }
+            }
+
+            try {
+                _agentConsoleLogs.value = _agentConsoleLogs.value + "[PARSER] Analysing structural JSON response cargo..."
+                val json = org.json.JSONObject(cleaned)
+                
+                // Read and stream logs
+                val logsArr = json.optJSONArray("logs")
+                if (logsArr != null && logsArr.length() > 0) {
+                    for (i in 0 until logsArr.length()) {
+                        _agentConsoleLogs.value = _agentConsoleLogs.value + "[TASK] ${logsArr.getString(i)}"
+                        kotlinx.coroutines.delay(200)
+                    }
+                }
+
+                // Create or Modify files
+                val filesArr = json.optJSONArray("files")
+                if (filesArr != null && filesArr.length() > 0) {
+                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[WRITER] Writing autonomous file updates directly..."
+                    for (i in 0 until filesArr.length()) {
+                        val fileObj = filesArr.getJSONObject(i)
+                        val name = fileObj.getString("name")
+                        val path = fileObj.optString("path", name)
+                        val content = fileObj.getString("content")
+
+                        _agentConsoleLogs.value = _agentConsoleLogs.value + "[WRITER] Writing file '${path}' with ${content.length} characters..."
+                        
+                        // Save file to database/workspace
+                        var parentPath = ""
+                        val slIdx = path.lastIndexOf('/')
+                        if (slIdx != -1) {
+                            parentPath = path.substring(0, slIdx)
+                        }
+
+                        repository.saveFile(path, name, parentPath, false, content)
+                        kotlinx.coroutines.delay(200)
+
+                        // Auto-select the updated files
+                        selectFile(path)
+                    }
+                }
+
+                _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] SUCCESS! TASK SECURELY COMPLETED AUTONOMOUSLY. CHECK EXPLORER! 🚀"
+            } catch (e: Exception) {
+                _agentConsoleLogs.value = _agentConsoleLogs.value + "[ERROR] JSON parse failed: ${e.message}"
+                _agentConsoleLogs.value = _agentConsoleLogs.value + "[FALLBACK] Attempting heuristic code extraction and saver..."
+
+                // Smart heuristic parser: find any file-like output or generate a single python file based on goal
+                val fallbackFileName = if (goal.lowercase().contains("html")) "index.html" else "agent_script.py"
+                _agentConsoleLogs.value = _agentConsoleLogs.value + "[FALLBACK] Creating raw output fallback file '${fallbackFileName}'..."
+                
+                try {
+                    repository.saveFile(fallbackFileName, fallbackFileName, "", false, response)
+                    selectFile(fallbackFileName)
+                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] FALLBACK SUCCESS! Saved raw result in ${fallbackFileName}."
+                } catch (ex: Exception) {
+                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[ERROR] Fallback save failed: ${ex.message}"
+                }
+            } finally {
+                _isAgentRunning.value = false
+            }
+        }
     }
 
     // --- Git Integration Actions ---
