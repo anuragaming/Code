@@ -1,0 +1,63 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Repo không có gradlew nên dùng Gradle cài sẵn qua action này
+      # AGP 9.1.x cần Gradle 9.3+ (nếu báo lỗi version thì tăng số này lên)
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.3.1
+
+      # build.gradle.kts trỏ tới ${rootDir}/debug.keystore nhưng file này bị .gitignore
+      # nên phải tự tạo trên CI (đúng alias/pass mà build.gradle.kts đang dùng)
+      - name: Generate debug keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+      # Tuỳ chọn: nếu muốn nhúng key Gemini vào app thì thêm secret GEMINI_API_KEY
+      # trong Settings > Secrets and variables > Actions. Không có thì dùng placeholder.
+      - name: Create .env
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          if [ -n "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY=$GEMINI_API_KEY" > .env
+          else
+            cp .env.example .env
+          fi
+
+      - name: Build debug APK
+        run: gradle assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MeowStudio-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
