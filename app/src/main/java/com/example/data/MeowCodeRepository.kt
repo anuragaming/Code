@@ -114,6 +114,42 @@ class MeowCodeRepository(private val dao: MeowCodeDao) {
         return dao.getSettingValue(key)
     }
 
+    suspend fun saveAiProviderConfig(config: com.example.api.AiProviderConfig) {
+        updateSetting("ai_provider_name", config.providerName)
+        updateSetting("ai_protocol", config.protocol.id)
+        updateSetting("ai_api_url", config.baseUrl)
+        updateSetting("ai_api_key", config.apiKey)
+        updateSetting("ai_model", config.modelId)
+        updateSetting("ai_temperature", config.temperature.toString())
+        updateSetting("ai_max_tokens", config.maxOutputTokens.toString())
+        updateSetting("ai_timeout_sec", config.timeoutSeconds.toString())
+        updateSetting("ai_streaming_enabled", config.streamingEnabled.toString())
+    }
+
+    suspend fun loadAiProviderConfig(): com.example.api.AiProviderConfig {
+        val providerName = getSetting("ai_provider_name") ?: "MotAPI"
+        val protocol = com.example.api.ApiProtocol.fromId(getSetting("ai_protocol"))
+        val baseUrl = getSetting("ai_api_url")?.takeIf { it.isNotBlank() } ?: protocol.defaultBaseUrl
+        val apiKey = getSetting("ai_api_key") ?: ""
+        val modelId = getSetting("ai_model")?.takeIf { it.isNotBlank() && it != "gemini-3.5-flash" }
+            ?: protocol.defaultModelId
+        val temperature = getSetting("ai_temperature")?.toFloatOrNull()?.coerceIn(0f, 2f) ?: 0.2f
+        val maxTokens = getSetting("ai_max_tokens")?.toIntOrNull()?.coerceIn(64, 32768) ?: 4096
+        val timeoutSec = getSetting("ai_timeout_sec")?.toIntOrNull()?.coerceIn(5, 300) ?: 60
+        val streaming = getSetting("ai_streaming_enabled")?.toBooleanStrictOrNull() ?: true
+        return com.example.api.AiProviderConfig(
+            providerName = providerName,
+            protocol = protocol,
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            modelId = modelId,
+            temperature = temperature,
+            maxOutputTokens = maxTokens,
+            timeoutSeconds = timeoutSec,
+            streamingEnabled = streaming
+        )
+    }
+
     // Remote Server IP
     suspend fun saveServer(server: RemoteServer) {
         dao.insertServer(server)
@@ -208,7 +244,7 @@ button:hover {
 app = Flask(__name__)
 
 @app.route("/api/v1/meow")
-fun get_meow():
+def get_meow():
     return jsonify({
         "status": "success",
         "message": "Hello from Meow Core Server!",

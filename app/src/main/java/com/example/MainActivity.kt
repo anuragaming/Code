@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -44,12 +45,20 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.agent.AgentExecutionState
+import com.example.api.AiProviderConfig
+import com.example.api.ApiProtocol
+import com.example.api.ConnectionTestResult
+import com.example.api.ModelDiscoveryResult
 import com.example.data.*
+import com.example.editor.LanguageSyntaxHighlighter
 import com.example.ui.ChatMessage
 import com.example.ui.MeowCodeViewModel
 import kotlinx.coroutines.launch
@@ -150,6 +159,9 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     val selectedPath by viewModel.selectedPath.collectAsStateWithLifecycle()
     val openTabs by viewModel.openTabs.collectAsStateWithLifecycle()
     val editorContent by viewModel.currentEditorContent.collectAsStateWithLifecycle()
+    val editorTextFieldValue by viewModel.editorTextFieldValue.collectAsStateWithLifecycle()
+    val activeEditorLanguage by viewModel.activeEditorLanguage.collectAsStateWithLifecycle()
+    val cursorPosition by viewModel.cursorPosition.collectAsStateWithLifecycle()
     val activePanel by viewModel.activePanel.collectAsStateWithLifecycle()
 
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
@@ -160,6 +172,13 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
     val aiModel by viewModel.aiModel.collectAsStateWithLifecycle()
     val aiUrl by viewModel.aiApiUrl.collectAsStateWithLifecycle()
     val aiKey by viewModel.aiApiKey.collectAsStateWithLifecycle()
+    val aiProviderConfig by viewModel.aiProviderConfig.collectAsStateWithLifecycle()
+    val discoveredModels by viewModel.discoveredModels.collectAsStateWithLifecycle()
+    val modelDiscoveryResult by viewModel.modelDiscoveryResult.collectAsStateWithLifecycle()
+    val connectionTestResult by viewModel.connectionTestResult.collectAsStateWithLifecycle()
+    val isTestingConnection by viewModel.isTestingConnection.collectAsStateWithLifecycle()
+    val isFetchingModels by viewModel.isFetchingModels.collectAsStateWithLifecycle()
+    val apiSettingsStatusMessage by viewModel.apiSettingsStatusMessage.collectAsStateWithLifecycle()
 
     val terminalTabs by viewModel.terminalTabs.collectAsStateWithLifecycle()
     val activeTerminalIdx by viewModel.activeTerminalIdx.collectAsStateWithLifecycle()
@@ -520,13 +539,26 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                     onRemove = { viewModel.removeServer(it) }
                                 )
                                 "settings" -> SettingsPanel(
-                                    url = aiUrl,
-                                    key = aiKey,
-                                    model = aiModel,
+                                    config = aiProviderConfig,
+                                    discoveredModels = discoveredModels,
+                                    connectionTestResult = connectionTestResult,
+                                    modelDiscoveryResult = modelDiscoveryResult,
+                                    isTestingConnection = isTestingConnection,
+                                    isFetchingModels = isFetchingModels,
+                                    statusMessage = apiSettingsStatusMessage,
                                     theme = currentTheme,
                                     isAntigravityHudEnabled = isAntigravityHudEnabled,
                                     onToggleAntigravityHud = { viewModel.toggleAntigravityHud() },
-                                    onUpdateSettings = { url, key, m -> viewModel.updateAiSettings(url, key, m) }
+                                    onConfigChange = { viewModel.updateAiProviderConfig(it) },
+                                    onSaveConfig = { viewModel.saveAiProviderConfiguration(it) },
+                                    onTestConnection = { viewModel.testAiConnection() },
+                                    onFetchModels = { viewModel.fetchAvailableModels() },
+                                    onSelectModel = { viewModel.selectDiscoveredModel(it) },
+                                    onApplyMotApiPreset = { viewModel.applyMotApiPreset() },
+                                    onApplyGeminiPreset = { viewModel.applyGeminiPreset() },
+                                    onApplyAnthropicPreset = { viewModel.applyAnthropicPreset() },
+                                    onResetConfig = { viewModel.resetAiProviderConfiguration() },
+                                    onClearApiKey = { viewModel.clearAiApiKey() }
                                 )
                                 "hosting" -> HostingPanel(
                                     theme = currentTheme
@@ -851,25 +883,38 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                     ) else Modifier
                                                 )
                                         ) {
-                                            // Interactive Line Numbers (toggling breakpoints)
-                                            val linesCount = editorContent.split("\n").size.coerceAtLeast(1)
+                                            // Synchronized vertical scroll state for Line Number Gutter + Code Editor
+                                            val editorVerticalScrollState = rememberScrollState()
+                                            val hScrollState = rememberScrollState()
+                                            val linesCount = remember(editorTextFieldValue.text) {
+                                                (editorTextFieldValue.text.count { it == '\n' } + 1).coerceAtLeast(1)
+                                            }
+                                            val activeCursorLine = cursorPosition.line
+
+                                            // Interactive Line Numbers (toggling breakpoints & synchronized scrolling)
                                             Column(
                                                 modifier = Modifier
-                                                    .width(36.dp)
+                                                    .width(42.dp)
                                                     .fillMaxHeight()
-                                                    .background(currentTheme.headerBg.copy(alpha = 0.15f))
-                                                    .padding(vertical = 4.dp),
+                                                    .verticalScroll(editorVerticalScrollState)
+                                                    .background(currentTheme.headerBg.copy(alpha = 0.25f))
+                                                    .padding(vertical = 8.dp),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 for (i in 1..linesCount) {
                                                     val pathKey = selectedPath ?: ""
                                                     val hasBreakpoint = breakpoints[pathKey]?.contains(i) == true
+                                                    val isCurrentLine = i == activeCursorLine
                                                     Row(
                                                         verticalAlignment = Alignment.CenterVertically,
                                                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                         modifier = Modifier
                                                             .fillMaxWidth()
-                                                            .height(18.dp)
+                                                            .height(20.dp)
+                                                            .background(
+                                                                if (isCurrentLine) currentTheme.accent.copy(alpha = 0.12f)
+                                                                else Color.Transparent
+                                                            )
                                                             .clickable { viewModel.toggleBreakpoint(pathKey, i) }
                                                             .padding(horizontal = 4.dp)
                                                     ) {
@@ -883,8 +928,12 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                             text = i.toString(),
                                                             fontFamily = FontFamily.Monospace,
                                                             fontSize = 11.sp,
-                                                            fontWeight = if (hasBreakpoint) FontWeight.Bold else FontWeight.Normal,
-                                                            color = if (hasBreakpoint) Color.Red else currentTheme.textPrimary.copy(alpha = 0.25f),
+                                                            fontWeight = if (hasBreakpoint || isCurrentLine) FontWeight.Bold else FontWeight.Normal,
+                                                            color = when {
+                                                                hasBreakpoint -> Color.Red
+                                                                isCurrentLine -> currentTheme.accent
+                                                                else -> currentTheme.textPrimary.copy(alpha = 0.35f)
+                                                            },
                                                             modifier = Modifier.weight(1f),
                                                             textAlign = androidx.compose.ui.text.style.TextAlign.End
                                                         )
@@ -892,35 +941,74 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                 }
                                             }
 
-                                            // Real Interactive Text Field Editor space
-                                            val hScrollState = rememberScrollState()
+                                            // Real Selection-Aware TextFieldValue Code Editor
+                                            val isDarkEditor = currentTheme != ClassicSlateTheme || true
+                                            val syntaxVisualTransform = remember(activeEditorLanguage, isSyntaxHighlightingEnabled, isDarkEditor) {
+                                                if (isSyntaxHighlightingEnabled) {
+                                                    LanguageSyntaxHighlighter(activeEditorLanguage, isDarkTheme = isDarkEditor)
+                                                } else {
+                                                    VisualTransformation.None
+                                                }
+                                            }
+
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
                                                     .fillMaxHeight()
+                                                    .verticalScroll(editorVerticalScrollState)
                                                     .then(
                                                         if (!isWordWrapEnabled) Modifier.horizontalScroll(hScrollState)
                                                         else Modifier.fillMaxWidth()
                                                     )
-                                                    .padding(8.dp)
+                                                    .padding(vertical = 8.dp, horizontal = 8.dp)
                                             ) {
                                                 BasicTextField(
-                                                    value = editorContent,
-                                                    onValueChange = { viewModel.updateEditorContent(it) },
+                                                    value = editorTextFieldValue,
+                                                    onValueChange = { viewModel.onEditorTextFieldValueChange(it) },
                                                     textStyle = TextStyle(
                                                         color = currentTheme.textPrimary,
                                                         fontFamily = FontFamily.Monospace,
                                                         fontSize = 13.sp,
-                                                        lineHeight = 18.sp
+                                                        lineHeight = 20.sp
                                                     ),
-                                                    visualTransformation = if (isSyntaxHighlightingEnabled) {
-                                                        CodeSyntaxHighlighter(currentTheme)
-                                                    } else {
-                                                        VisualTransformation.None
-                                                    },
+                                                    visualTransformation = syntaxVisualTransform,
                                                     cursorBrush = SolidColor(currentTheme.accent),
                                                     modifier = Modifier
-                                                        .fillMaxSize()
+                                                        .fillMaxWidth()
+                                                        .heightIn(min = 380.dp)
+                                                        .onPreviewKeyEvent { keyEvent ->
+                                                            if (keyEvent.type == KeyEventType.KeyDown) {
+                                                                when {
+                                                                    keyEvent.key == Key.Tab && keyEvent.isShiftPressed -> {
+                                                                        viewModel.performEditorShiftTab()
+                                                                        true
+                                                                    }
+                                                                    keyEvent.key == Key.Tab -> {
+                                                                        viewModel.performEditorTab()
+                                                                        true
+                                                                    }
+                                                                    keyEvent.key == Key.Enter || keyEvent.key == Key.NumPadEnter -> {
+                                                                        viewModel.performEditorEnter()
+                                                                        true
+                                                                    }
+                                                                    keyEvent.key == Key.Z && keyEvent.isCtrlPressed && keyEvent.isShiftPressed -> {
+                                                                        viewModel.applyRedo()
+                                                                        true
+                                                                    }
+                                                                    keyEvent.key == Key.Z && keyEvent.isCtrlPressed -> {
+                                                                        viewModel.applyUndo()
+                                                                        true
+                                                                    }
+                                                                    keyEvent.key == Key.Y && keyEvent.isCtrlPressed -> {
+                                                                        viewModel.applyRedo()
+                                                                        true
+                                                                    }
+                                                                    else -> false
+                                                                }
+                                                            } else {
+                                                                false
+                                                            }
+                                                        }
                                                         .testTag("code_editor_field")
                                                 )
                                             }
@@ -985,16 +1073,14 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                                 )
                                             )
                                         )
-                                        val pathNonNull = selectedPath ?: ""
-                                        val detectedLang = pathNonNull.substringAfterLast('.').uppercase()
                                         Text(
-                                            text = "Lang: $detectedLang",
+                                            text = "Lang: ${activeEditorLanguage.displayName}",
                                             fontSize = 9.sp,
                                             color = currentTheme.textSecondary,
                                             fontWeight = FontWeight.Bold
                                         )
                                         Text(
-                                            text = "Spaces: 4",
+                                            text = "Spaces: ${activeEditorLanguage.defaultIndentSize}",
                                             fontSize = 9.sp,
                                             color = currentTheme.textSecondary
                                         )
@@ -1010,7 +1096,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         Text(
-                                            text = "Ln ${editorContent.split("\n").size}, Col ${editorContent.length}",
+                                            text = "Ln ${cursorPosition.line}, Col ${cursorPosition.column}",
                                             fontSize = 9.sp,
                                             color = currentTheme.textPrimary.copy(alpha = 0.6f),
                                             fontFamily = FontFamily.Monospace
@@ -1295,17 +1381,14 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    val activeLang = remember(selectedPath) {
-                        selectedPath?.substringAfterLast('.')?.uppercase() ?: "PLAIN TEXT"
-                    }
                     Text(
-                        text = "Lines: ${remember(editorContent) { editorContent.split("\n").size }}",
+                        text = "Ln ${cursorPosition.line}:${cursorPosition.column} (${cursorPosition.totalLines}L)",
                         fontSize = 10.sp,
                         color = currentTheme.textPrimary.copy(alpha = 0.6f),
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        text = "Spaces: 4",
+                        text = "Spaces: ${activeEditorLanguage.defaultIndentSize}",
                         fontSize = 10.sp,
                         color = currentTheme.textPrimary.copy(alpha = 0.6f)
                     )
@@ -1321,7 +1404,7 @@ fun MeowCodeApp(viewModel: MeowCodeViewModel) {
                             .clip(RoundedCornerShape(2.dp))
                     ) {
                         Text(
-                            text = activeLang,
+                            text = activeEditorLanguage.displayName.uppercase(),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             color = currentTheme.accent
@@ -2767,13 +2850,19 @@ fun AiAssistantPanel(
     onSaveSnippet: (String) -> Unit,
     viewModel: MeowCodeViewModel
 ) {
-    var selectedEngine by remember { mutableStateOf("Gemini 2.5 Flash") }
+    val providerConfig by viewModel.aiProviderConfig.collectAsStateWithLifecycle()
+    val discoveredModels by viewModel.discoveredModels.collectAsStateWithLifecycle()
+    val agentState by viewModel.agentExecutionState.collectAsStateWithLifecycle()
+    val pendingConfirmation by viewModel.pendingAgentConfirmation.collectAsStateWithLifecycle()
+
     var showEngineMenu by remember { mutableStateOf(false) }
-    val engineOptions = listOf("Gemini 2.5 Flash", "DeepSeek R1 Pro", "GPT-4o Enterprise", "Claude 3.5 Sonnet")
+    val engineOptions = remember(discoveredModels, providerConfig.modelId) {
+        (listOf(providerConfig.modelId) + discoveredModels).distinct()
+    }
     var activeTab by remember { mutableStateOf("chat") } // "chat" or "agent"
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // --- High-End AI Header Bar with Model Dropdown ---
+        // --- High-End AI Header Bar showing real configured Provider & Model ---
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2790,21 +2879,14 @@ fun AiAssistantPanel(
                     modifier = Modifier
                         .size(6.dp)
                         .clip(CircleShape)
-                        .background(theme.accent)
+                        .background(if (providerConfig.apiKey.isNotBlank()) Color(0xFF10B981) else Color(0xFFF59E0B))
                 )
                 Text(
-                    text = "AmiCoder AI CORE",
-                    fontSize = 11.sp,
+                    text = providerConfig.providerName.uppercase(),
+                    fontSize = 10.5.sp,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.Monospace,
-                    color = theme.accent,
-                    style = TextStyle(
-                        shadow = Shadow(
-                            color = theme.accent.copy(alpha = 0.5f),
-                            offset = Offset(0f, 0f),
-                            blurRadius = 8f
-                        )
-                    )
+                    color = theme.accent
                 )
             }
 
@@ -2819,16 +2901,19 @@ fun AiAssistantPanel(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = selectedEngine,
+                        text = providerConfig.modelId,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
-                        color = theme.textPrimary
+                        color = theme.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 120.dp)
                     )
                     Icon(
                         imageVector = Icons.Default.ArrowDropDown,
-                        contentDescription = "Select Engine",
+                        contentDescription = "Select Model",
                         tint = theme.accent,
-                        modifier = Modifier.size(10.dp)
+                        modifier = Modifier.size(12.dp)
                     )
                 }
 
@@ -2843,16 +2928,47 @@ fun AiAssistantPanel(
                                 Text(
                                     text = option,
                                     fontSize = 11.sp,
-                                    color = if (option == selectedEngine) theme.accent else theme.textPrimary
+                                    color = if (option == providerConfig.modelId) theme.accent else theme.textPrimary
                                 )
                             },
                             onClick = {
-                                selectedEngine = option
+                                viewModel.selectDiscoveredModel(option)
                                 showEngineMenu = false
                             }
                         )
                     }
+                    DropdownMenuItem(
+                        text = {
+                            Text("⚙ Open AI API Settings...", fontSize = 11.sp, color = theme.accent)
+                        },
+                        onClick = {
+                            showEngineMenu = false
+                            viewModel.selectPanel("settings")
+                        }
+                    )
                 }
+            }
+        }
+
+        // Quick Warning Banner if API key missing
+        if (providerConfig.apiKey.isBlank()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFF59E0B).copy(alpha = 0.14f))
+                    .clickable { viewModel.selectPanel("settings") }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "⚠ Missing API key for ${providerConfig.providerName}. Tap to configure.",
+                    fontSize = 9.sp,
+                    color = Color(0xFFFBBF24),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f)
+                )
+                Text("Setup →", fontSize = 9.sp, color = theme.accent, fontWeight = FontWeight.Bold)
             }
         }
 
@@ -2914,9 +3030,36 @@ fun AiAssistantPanel(
         }
 
         if (activeTab == "chat") {
+            // Quick IDE Assistant Actions Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                OutlinedButton(
+                    onClick = { viewModel.explainActiveFileWithAi() },
+                    enabled = isGenerating.isEmpty(),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.weight(1f).height(26.dp),
+                    border = BorderStroke(0.5.dp, theme.border)
+                ) {
+                    Text("Explain File", fontSize = 8.5.sp, color = theme.textPrimary)
+                }
+                OutlinedButton(
+                    onClick = { viewModel.analyzeCurrentErrorsWithAi() },
+                    enabled = isGenerating.isEmpty(),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    modifier = Modifier.weight(1f).height(26.dp),
+                    border = BorderStroke(0.5.dp, theme.border)
+                ) {
+                    Text("Analyze Errors", fontSize = 8.5.sp, color = theme.accent)
+                }
+            }
+
             val listState = rememberLazyListState()
 
-            LaunchedEffect(history.size) {
+            LaunchedEffect(history.size, history.lastOrNull()?.content?.length) {
                 if (history.isNotEmpty()) {
                     listState.animateScrollToItem(history.size - 1)
                 }
@@ -2948,7 +3091,7 @@ fun AiAssistantPanel(
                                     }
                                 )
                                 .background(
-                                    if (isMe) theme.accent.copy(alpha = 0.18f) 
+                                    if (isMe) theme.accent.copy(alpha = 0.18f)
                                     else theme.cardBg
                                 )
                                 .border(
@@ -2972,8 +3115,7 @@ fun AiAssistantPanel(
                                         lineHeight = 16.sp
                                     )
                                 }
-                                // Quick snippet extract injector actions if response has code
-                                if (!isMe && (msg.content.contains("```") || msg.content.contains("def") || msg.content.contains("function"))) {
+                                if (!isMe && (msg.content.contains("```") || msg.content.contains("def ") || msg.content.contains("function "))) {
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Row(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -3032,11 +3174,26 @@ fun AiAssistantPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp, horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp, color = theme.accent)
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text("Thinking... 🐾", fontSize = 9.5.sp, color = theme.accent, fontFamily = FontFamily.Monospace)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(10.dp), strokeWidth = 1.2.dp, color = theme.accent)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (providerConfig.streamingEnabled) "Streaming (${providerConfig.modelId})..." else "Thinking... 🐾",
+                            fontSize = 9.5.sp,
+                            color = theme.accent,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Text(
+                        text = "Stop",
+                        fontSize = 9.sp,
+                        color = Color(0xFFEF4444),
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.clickable { viewModel.stopAiGeneration() }
+                    )
                 }
             }
 
@@ -3057,7 +3214,7 @@ fun AiAssistantPanel(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (inputPrompt.isEmpty()) {
-                        Text("Type / Ask AmiCoder ... 🍞", color = theme.textPrimary.copy(alpha = 0.35f), fontSize = 11.5.sp)
+                        Text("Ask ${providerConfig.modelId}...", color = theme.textPrimary.copy(alpha = 0.35f), fontSize = 11.5.sp)
                     }
                     BasicTextField(
                         value = inputPrompt,
@@ -3086,16 +3243,16 @@ fun AiAssistantPanel(
                 }
             }
         } else {
-            // --- AGENT MODE SUB PANEL ---
+            // --- AUTONOMOUS AGENT MODE SUB PANEL ---
             var agentInputGoal by remember { mutableStateOf("") }
-            val agentLogs by viewModel.agentConsoleLogs.collectAsState()
-            val agentIsRunning by viewModel.isAgentRunning.collectAsState()
+            val agentLogs by viewModel.agentConsoleLogs.collectAsStateWithLifecycle()
+            val agentIsRunning by viewModel.isAgentRunning.collectAsStateWithLifecycle()
 
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = theme.cardBg),
@@ -3110,42 +3267,76 @@ fun AiAssistantPanel(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "AmiCoder Agent Core 🚀",
-                                fontSize = 11.sp,
+                                text = "AmiCoder Autonomous Agent",
+                                fontSize = 10.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = theme.accent
                             )
-                            if (agentIsRunning) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(5.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Green)
-                                    )
-                                    Text("RUNNING", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color.Green, fontFamily = FontFamily.Monospace)
-                                }
-                            } else {
-                                Text("STANDBY", fontSize = 8.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary.copy(alpha = 0.4f), fontFamily = FontFamily.Monospace)
+                            val badgeColor = when (agentState) {
+                                AgentExecutionState.RUNNING -> Color(0xFF10B981)
+                                AgentExecutionState.PAUSED, AgentExecutionState.AWAITING_CONFIRMATION -> Color(0xFFF59E0B)
+                                AgentExecutionState.FAILED, AgentExecutionState.STOPPED -> Color(0xFFEF4444)
+                                AgentExecutionState.COMPLETED -> Color(0xFF38BDF8)
+                                else -> theme.textPrimary.copy(alpha = 0.45f)
                             }
+                            Text(
+                                text = agentState.name,
+                                fontSize = 8.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = badgeColor,
+                                fontFamily = FontFamily.Monospace
+                            )
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Agent mode analyzes your workspace context, plans multi-file edits, and writes files autonomously. Full automated generation!",
-                            fontSize = 9.sp,
+                            text = "Uses ${providerConfig.providerName} (${providerConfig.modelId}) + sandboxed workspace tools (read/write/replace/search/verify).",
+                            fontSize = 8.5.sp,
                             color = theme.textSecondary,
-                            lineHeight = 12.sp
+                            lineHeight = 11.sp
                         )
+                    }
+                }
+
+                // Destructive action confirmation prompt (e.g., delete_file)
+                pendingConfirmation?.let { pending ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF7C2D12).copy(alpha = 0.45f)),
+                        border = BorderStroke(1.dp, Color(0xFFF59E0B)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Confirm Destructive Action", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFFBBF24))
+                            Text(pending.description, fontSize = 9.sp, color = Color.White)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(
+                                    onClick = { viewModel.resolvePendingAgentConfirmation(true) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                                    modifier = Modifier.weight(1f).height(28.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("Approve", fontSize = 9.sp, color = Color.White)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.resolvePendingAgentConfirmation(false) },
+                                    modifier = Modifier.weight(1f).height(28.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("Decline", fontSize = 9.sp, color = Color.White)
+                                }
+                            }
+                        }
                     }
                 }
 
                 OutlinedTextField(
                     value = agentInputGoal,
                     onValueChange = { agentInputGoal = it },
-                    placeholder = { Text("Describe goal (e.g. 'Build a file reader in python' or 'Create game loop script')", fontSize = 11.sp) },
+                    placeholder = { Text("Describe engineering task (e.g. 'Fix syntax bug in api.py' or 'Create a responsive todo.html')", fontSize = 10.sp) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(64.dp),
+                    textStyle = TextStyle(fontSize = 11.sp, color = theme.textPrimary),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = theme.textPrimary,
                         unfocusedTextColor = theme.textPrimary,
@@ -3155,31 +3346,77 @@ fun AiAssistantPanel(
                     enabled = !agentIsRunning
                 )
 
-                Button(
-                    onClick = {
-                        if (agentInputGoal.isNotBlank()) {
-                            viewModel.executeAgentAutonomousTask(agentInputGoal)
-                        }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(32.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (agentIsRunning) Color.Gray else theme.accent
-                    ),
-                    shape = RoundedCornerShape(4.dp),
-                    contentPadding = PaddingValues(0.dp),
-                    enabled = !agentIsRunning && agentInputGoal.isNotBlank()
+                // Agent Controls: Start / Pause / Resume / Stop / Clear Logs
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = if (agentIsRunning) "AGENT RUNNING..." else "DEPLOY CODER AGENT 🚀",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (agentIsRunning) Color.LightGray else theme.headerBg
-                    )
+                    Button(
+                        onClick = {
+                            if (agentInputGoal.isNotBlank()) {
+                                viewModel.executeAgentAutonomousTask(agentInputGoal)
+                            }
+                        },
+                        modifier = Modifier.weight(1f).height(30.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (agentIsRunning) Color.Gray else theme.accent
+                        ),
+                        shape = RoundedCornerShape(4.dp),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                        enabled = !agentIsRunning && agentInputGoal.isNotBlank()
+                    ) {
+                        Text(
+                            text = if (agentIsRunning) "RUNNING..." else "Start Agent",
+                            fontSize = 9.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (agentIsRunning) Color.LightGray else theme.headerBg
+                        )
+                    }
+
+                    if (agentIsRunning) {
+                        Button(
+                            onClick = {
+                                if (agentState == AgentExecutionState.PAUSED) {
+                                    viewModel.resumeAgentExecution()
+                                } else {
+                                    viewModel.pauseAgentExecution()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B)),
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text(
+                                text = if (agentState == AgentExecutionState.PAUSED) "Resume" else "Pause",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.Black
+                            )
+                        }
+
+                        Button(
+                            onClick = { viewModel.stopAgentExecution() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Stop", fontSize = 9.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = { viewModel.clearAgentLogs() },
+                            shape = RoundedCornerShape(4.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                            modifier = Modifier.height(30.dp)
+                        ) {
+                            Text("Clear", fontSize = 9.sp, color = theme.textSecondary)
+                        }
+                    }
                 }
 
-                Text("Autonomous Live Trace Console", fontSize = 9.5.sp, color = theme.accent, fontWeight = FontWeight.Bold)
+                Text("Autonomous Execution Trace", fontSize = 9.5.sp, color = theme.accent, fontWeight = FontWeight.Bold)
 
                 Box(
                     modifier = Modifier
@@ -3204,12 +3441,12 @@ fun AiAssistantPanel(
                     ) {
                         items(agentLogs) { logMsg ->
                             val terminalColor = when {
-                                logMsg.contains("[AGENT]") -> Color(0xFFFBBF24) // Yellow
-                                logMsg.contains("[PLANNER]") -> Color(0xFF38BDF8) // Blue
-                                logMsg.contains("[SCANNER]") -> Color(0xFF818CF8) // Purple
-                                logMsg.contains("[WRITER]") -> Color(0xFF34D399) // Green
-                                logMsg.contains("[ERROR]") -> Color(0xFFEF4444) // Red
-                                else -> Color(0xFFE2E8F0) // White/Slate
+                                logMsg.contains("[AGENT]") -> Color(0xFFFBBF24)
+                                logMsg.contains("[PLANNER]") -> Color(0xFF38BDF8)
+                                logMsg.contains("[SCANNER]") -> Color(0xFF818CF8)
+                                logMsg.contains("[WRITER]") -> Color(0xFF34D399)
+                                logMsg.contains("[ERROR]") -> Color(0xFFEF4444)
+                                else -> Color(0xFFE2E8F0)
                             }
                             Text(
                                 text = logMsg,
@@ -3316,20 +3553,34 @@ fun VPSPanel(
     }
 }
 
-// --- CORE IDE SETTINGS PANEL ---
+// --- CORE IDE & CUSTOM AI API SETTINGS PANEL ---
 @Composable
 fun SettingsPanel(
-    url: String,
-    key: String,
-    model: String,
+    config: AiProviderConfig,
+    discoveredModels: List<String>,
+    connectionTestResult: ConnectionTestResult?,
+    modelDiscoveryResult: ModelDiscoveryResult?,
+    isTestingConnection: Boolean,
+    isFetchingModels: Boolean,
+    statusMessage: String?,
     theme: IdeTheme,
     isAntigravityHudEnabled: Boolean,
     onToggleAntigravityHud: () -> Unit,
-    onUpdateSettings: (String, String, String) -> Unit
+    onConfigChange: (AiProviderConfig) -> Unit,
+    onSaveConfig: (AiProviderConfig) -> Unit,
+    onTestConnection: () -> Unit,
+    onFetchModels: () -> Unit,
+    onSelectModel: (String) -> Unit,
+    onApplyMotApiPreset: () -> Unit,
+    onApplyGeminiPreset: () -> Unit,
+    onApplyAnthropicPreset: () -> Unit,
+    onResetConfig: () -> Unit,
+    onClearApiKey: () -> Unit
 ) {
-    var editedUrl by remember(url) { mutableStateOf(url) }
-    var editedKey by remember(key) { mutableStateOf(key) }
-    var editedModel by remember(model) { mutableStateOf(model) }
+    var showApiKey by remember { mutableStateOf(false) }
+    var tempText by remember(config.temperature) { mutableStateOf(config.temperature.toString()) }
+    var maxTokensText by remember(config.maxOutputTokens) { mutableStateOf(config.maxOutputTokens.toString()) }
+    var timeoutText by remember(config.timeoutSeconds) { mutableStateOf(config.timeoutSeconds.toString()) }
 
     Column(
         modifier = Modifier
@@ -3345,8 +3596,8 @@ fun SettingsPanel(
             modifier = Modifier.fillMaxWidth().testTag("vip_hud_settings_card")
         ) {
             Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.padding(10.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -3354,20 +3605,11 @@ fun SettingsPanel(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "ANTIGRAVITY HUD MODE",
-                        fontSize = 11.5.sp,
+                        text = "ANTIGRAVITY HUD",
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = theme.accent,
-                        style = TextStyle(
-                            shadow = Shadow(
-                                color = theme.accent.copy(alpha = 0.5f),
-                                offset = Offset(0f, 0f),
-                                blurRadius = 8f
-                            )
-                        )
+                        color = theme.accent
                     )
-
-                    // Custom styled Neon Switch Button for maximal visual polish
                     Button(
                         onClick = { onToggleAntigravityHud() },
                         colors = ButtonDefaults.buttonColors(
@@ -3375,95 +3617,361 @@ fun SettingsPanel(
                         ),
                         border = BorderStroke(1.dp, theme.accent),
                         shape = RoundedCornerShape(20.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 2.dp),
-                        modifier = Modifier.height(28.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                        modifier = Modifier.height(26.dp)
                     ) {
                         Text(
-                            text = if (isAntigravityHudEnabled) "ACTIVE ✨" else "DISABLED 📴",
-                            fontSize = 9.sp,
+                            text = if (isAntigravityHudEnabled) "ACTIVE ✨" else "DISABLED",
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = if (isAntigravityHudEnabled) theme.headerBg else theme.accent
                         )
                     }
                 }
-
-                Text(
-                    text = "Transform Meow Code into a stunning 3D futuristic hologram deck. Unlocks gorgeous neon panels, a stellar moving backdrop, and your animated VIP companion mascot.",
-                    fontSize = 10.5.sp,
-                    color = theme.textPrimary.copy(alpha = 0.7f),
-                    lineHeight = 14.sp
-                )
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
         Text(
-            "CUSTOM AI API INTEGRATION",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = theme.accent,
-            modifier = Modifier.padding(bottom = 4.dp)
-        )
-
-        OutlinedTextField(
-            value = editedUrl,
-            onValueChange = { editedUrl = it },
-            label = { Text("Base Chat API URL") },
-            placeholder = { Text("Leave empty for Google Gemini") },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = theme.accent,
-                focusedLabelColor = theme.accent
-            ),
-            modifier = Modifier.fillMaxWidth().testTag("custom_api_url_input")
-        )
-
-        OutlinedTextField(
-            value = editedKey,
-            onValueChange = { editedKey = it },
-            label = { Text("API Secret Key") },
-            placeholder = { Text("Leave empty to use Build Secrets") },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = theme.accent,
-                focusedLabelColor = theme.accent
-            ),
-            modifier = Modifier.fillMaxWidth().testTag("custom_api_key_input")
-        )
-
-        OutlinedTextField(
-            value = editedModel,
-            onValueChange = { editedModel = it },
-            label = { Text("API Model ID") },
-            placeholder = { Text("gemini-3.5-flash") },
-            singleLine = true,
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = theme.accent,
-                focusedLabelColor = theme.accent
-            ),
-            modifier = Modifier.fillMaxWidth().testTag("custom_api_model_input")
-        )
-
-        Button(
-            onClick = { onUpdateSettings(editedUrl, editedKey, editedModel) },
-            modifier = Modifier.fillMaxWidth().testTag("save_settings_button"),
-            colors = ButtonDefaults.buttonColors(containerColor = theme.accent)
-        ) {
-            Text("Save API Credentials 🔐", color = theme.headerBg)
-        }
-
-        Divider(modifier = Modifier.padding(vertical = 8.dp), color = theme.textPrimary.copy(alpha = 0.15f))
-
-        Text(
-            "DEVELOPMENT ENVIRONMENT",
+            text = "CUSTOM AI PROVIDER & MOTAPI",
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = theme.accent
         )
-        Text("Indent Mode: 4 Spaces", fontSize = 11.sp, color = theme.textPrimary.copy(alpha = 0.7f))
-        Text("Terminal Host: Embedded Termux Sandbox", fontSize = 11.sp, color = theme.textPrimary.copy(alpha = 0.7f))
-        Text("Language Support: Triaged Syntax v1.4", fontSize = 11.sp, color = theme.textPrimary.copy(alpha = 0.7f))
+
+        // One-tap Provider Presets
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            OutlinedButton(
+                onClick = onApplyMotApiPreset,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                border = BorderStroke(1.dp, if (config.providerName == "MotAPI") theme.accent else theme.border),
+                modifier = Modifier.weight(1f).height(28.dp)
+            ) {
+                Text("MotAPI", fontSize = 9.sp, color = theme.accent, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(
+                onClick = onApplyAnthropicPreset,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                border = BorderStroke(1.dp, if (config.protocol == ApiProtocol.ANTHROPIC_MESSAGES) theme.accent else theme.border),
+                modifier = Modifier.weight(1f).height(28.dp)
+            ) {
+                Text("Anthropic", fontSize = 9.sp, color = theme.textPrimary)
+            }
+            OutlinedButton(
+                onClick = onApplyGeminiPreset,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                border = BorderStroke(1.dp, if (config.protocol == ApiProtocol.GOOGLE_GEMINI) theme.accent else theme.border),
+                modifier = Modifier.weight(1f).height(28.dp)
+            ) {
+                Text("Gemini", fontSize = 9.sp, color = theme.textPrimary)
+            }
+        }
+
+        // Manual Protocol Selector
+        Text("API Protocol", fontSize = 9.5.sp, color = theme.textSecondary, fontWeight = FontWeight.SemiBold)
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            ApiProtocol.entries.forEach { proto ->
+                val isSelected = config.protocol == proto
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (isSelected) theme.accent.copy(alpha = 0.14f) else theme.cardBg)
+                        .border(0.5.dp, if (isSelected) theme.accent else theme.border, RoundedCornerShape(6.dp))
+                        .clickable {
+                            onConfigChange(
+                                config.copy(
+                                    protocol = proto,
+                                    baseUrl = if (config.baseUrl.isBlank()) proto.defaultBaseUrl else config.baseUrl
+                                )
+                            )
+                        }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = proto.displayName,
+                        fontSize = 9.5.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isSelected) theme.accent else theme.textPrimary
+                    )
+                    if (isSelected) {
+                        Icon(Icons.Default.Check, contentDescription = null, tint = theme.accent, modifier = Modifier.size(12.dp))
+                    }
+                }
+            }
+        }
+
+        OutlinedTextField(
+            value = config.providerName,
+            onValueChange = { onConfigChange(config.copy(providerName = it)) },
+            label = { Text("Provider Name", fontSize = 10.sp) },
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 11.sp, color = theme.textPrimary),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent, focusedLabelColor = theme.accent),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        OutlinedTextField(
+            value = config.baseUrl,
+            onValueChange = { onConfigChange(config.copy(baseUrl = it)) },
+            label = { Text("Base URL", fontSize = 10.sp) },
+            placeholder = { Text("https://motapis.com/v1") },
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = theme.textPrimary),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent, focusedLabelColor = theme.accent),
+            modifier = Modifier.fillMaxWidth().testTag("custom_api_url_input")
+        )
+
+        OutlinedTextField(
+            value = config.apiKey,
+            onValueChange = { onConfigChange(config.copy(apiKey = it)) },
+            label = { Text("API Secret Key", fontSize = 10.sp) },
+            placeholder = { Text("sk-...") },
+            singleLine = true,
+            visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { showApiKey = !showApiKey }, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = if (showApiKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = if (showApiKey) "Hide API key" else "Show API key",
+                            tint = theme.accent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    if (config.apiKey.isNotEmpty()) {
+                        IconButton(onClick = onClearApiKey, modifier = Modifier.size(28.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear Key", tint = Color(0xFFEF4444), modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            },
+            textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = theme.textPrimary),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent, focusedLabelColor = theme.accent),
+            modifier = Modifier.fillMaxWidth().testTag("custom_api_key_input")
+        )
+
+        OutlinedTextField(
+            value = config.modelId,
+            onValueChange = { onConfigChange(config.copy(modelId = it)) },
+            label = { Text("Model ID", fontSize = 10.sp) },
+            placeholder = { Text("claude-sonnet-5-5") },
+            singleLine = true,
+            textStyle = TextStyle(fontSize = 11.sp, fontFamily = FontFamily.Monospace, color = theme.textPrimary),
+            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = theme.accent, focusedLabelColor = theme.accent),
+            modifier = Modifier.fillMaxWidth().testTag("custom_api_model_input")
+        )
+
+        // Discovered Models Quick-Pick Chips
+        if (discoveredModels.isNotEmpty()) {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(discoveredModels) { modelOpt ->
+                    val isSel = config.modelId == modelOpt
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isSel) theme.accent else theme.cardBg)
+                            .border(0.5.dp, if (isSel) theme.accent else theme.border, RoundedCornerShape(4.dp))
+                            .clickable { onSelectModel(modelOpt) }
+                            .padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = modelOpt,
+                            fontSize = 8.5.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (isSel) theme.headerBg else theme.textPrimary,
+                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        )
+                    }
+                }
+            }
+        }
+
+        // Numeric Parameters Row: Temp / MaxTokens / Timeout
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            OutlinedTextField(
+                value = tempText,
+                onValueChange = {
+                    tempText = it
+                    it.toFloatOrNull()?.let { f ->
+                        onConfigChange(config.copy(temperature = f.coerceIn(0f, 2f)))
+                    }
+                },
+                label = { Text("Temp", fontSize = 9.sp) },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 10.sp, color = theme.textPrimary),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = maxTokensText,
+                onValueChange = {
+                    maxTokensText = it
+                    it.toIntOrNull()?.let { n ->
+                        onConfigChange(config.copy(maxOutputTokens = n.coerceIn(64, 32768)))
+                    }
+                },
+                label = { Text("MaxTok", fontSize = 9.sp) },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 10.sp, color = theme.textPrimary),
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedTextField(
+                value = timeoutText,
+                onValueChange = {
+                    timeoutText = it
+                    it.toIntOrNull()?.let { sec ->
+                        onConfigChange(config.copy(timeoutSeconds = sec.coerceIn(5, 300)))
+                    }
+                },
+                label = { Text("Timeout(s)", fontSize = 9.sp) },
+                singleLine = true,
+                textStyle = TextStyle(fontSize = 10.sp, color = theme.textPrimary),
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // SSE Streaming Toggle
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(6.dp))
+                .background(theme.cardBg)
+                .border(0.5.dp, theme.border, RoundedCornerShape(6.dp))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Streaming (SSE)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.textPrimary)
+                Text("Real-time token stream for chat responses", fontSize = 8.5.sp, color = theme.textSecondary)
+            }
+            Switch(
+                checked = config.streamingEnabled,
+                onCheckedChange = { onConfigChange(config.copy(streamingEnabled = it)) },
+                modifier = Modifier.scale(0.75f),
+                colors = SwitchDefaults.colors(checkedThumbColor = theme.accent)
+            )
+        }
+
+        // Action Buttons: Save / Test Connection / Fetch Models / Reset
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Button(
+                onClick = { onSaveConfig(config) },
+                modifier = Modifier.weight(1f).height(34.dp).testTag("save_settings_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.accent),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                Text("Save Config", fontSize = 9.5.sp, fontWeight = FontWeight.Bold, color = theme.headerBg)
+            }
+
+            Button(
+                onClick = onTestConnection,
+                enabled = !isTestingConnection,
+                modifier = Modifier.weight(1f).height(34.dp).testTag("test_connection_button"),
+                colors = ButtonDefaults.buttonColors(containerColor = theme.cardBg),
+                border = BorderStroke(1.dp, theme.accent),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                Text(
+                    text = if (isTestingConnection) "Testing..." else "Test API",
+                    fontSize = 9.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = theme.accent
+                )
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            OutlinedButton(
+                onClick = onFetchModels,
+                enabled = !isFetchingModels,
+                modifier = Modifier.weight(1f).height(32.dp).testTag("fetch_models_button"),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                Text(
+                    text = if (isFetchingModels) "Fetching..." else "Fetch Models",
+                    fontSize = 9.5.sp,
+                    color = theme.textPrimary
+                )
+            }
+
+            OutlinedButton(
+                onClick = onResetConfig,
+                modifier = Modifier.weight(1f).height(32.dp).testTag("reset_settings_button"),
+                border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.6f)),
+                contentPadding = PaddingValues(horizontal = 4.dp)
+            ) {
+                Text("Reset", fontSize = 9.5.sp, color = Color(0xFFEF4444))
+            }
+        }
+
+        // Diagnostics Feedback Card
+        if (connectionTestResult != null) {
+            val diagColor = if (connectionTestResult.success) Color(0xFF10B981) else Color(0xFFEF4444)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = diagColor.copy(alpha = 0.12f)),
+                border = BorderStroke(1.dp, diagColor),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = if (connectionTestResult.success) "CONNECTION OK (${connectionTestResult.latencyMs}ms)" else "CONNECTION ERROR (HTTP ${connectionTestResult.httpStatusCode})",
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = diagColor
+                    )
+                    Text(connectionTestResult.message, fontSize = 9.sp, color = theme.textPrimary)
+                    if (connectionTestResult.responsePreview.isNotBlank()) {
+                        Text("Preview: ${connectionTestResult.responsePreview}", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, color = theme.textSecondary)
+                    }
+                }
+            }
+        }
+
+        if (modelDiscoveryResult != null) {
+            val mColor = if (modelDiscoveryResult.success) Color(0xFF38BDF8) else Color(0xFFEF4444)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = mColor.copy(alpha = 0.1f)),
+                border = BorderStroke(0.5.dp, mColor),
+                shape = RoundedCornerShape(6.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = modelDiscoveryResult.statusMessage,
+                    fontSize = 9.sp,
+                    color = theme.textPrimary,
+                    modifier = Modifier.padding(8.dp)
+                )
+            }
+        } else if (!statusMessage.isNullOrBlank()) {
+            Text(
+                text = statusMessage,
+                fontSize = 9.sp,
+                color = theme.accentSecondary
+            )
+        }
+
+        Divider(modifier = Modifier.padding(vertical = 4.dp), color = theme.textPrimary.copy(alpha = 0.15f))
+
+        Text("EDITOR & RUNTIME", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = theme.accent)
+        Text("Endpoint Preview: ${com.example.api.GeminiClient.buildChatEndpointUrl(config)}", fontSize = 8.5.sp, fontFamily = FontFamily.Monospace, color = theme.textSecondary)
     }
 }
 
@@ -3949,7 +4457,7 @@ fun MeowProgrammingKeyboard(
     val normalSymbols = listOf(
         "{", "}", "[", "]", "(", ")", ";", ":", "\"", "'", ",", ".", "/", "\\", "|", "&", "!", "=", "+", "-", "*", "%", "<", ">", "^", "~", "?"
     )
-    val functionKeys = listOf("Tab", "Esc", "Ctrl", "Alt", "Shift")
+    val functionKeys = listOf("Tab", "Shift+Tab", "Enter", "Undo", "Redo")
     val arrows = listOf(
         "◀", "▶", "▲", "▼"
     )
@@ -4006,10 +4514,12 @@ fun MeowProgrammingKeyboard(
                         modifier = Modifier
                             .background(theme.cardBg, RoundedCornerShape(4.dp))
                             .clickable {
-                                if (key == "Tab") {
-                                    viewModel.selectKeyboardSuggestion("    ")
-                                } else {
-                                    viewModel.selectKeyboardSuggestion("")
+                                when (key) {
+                                    "Tab" -> viewModel.performEditorTab()
+                                    "Shift+Tab" -> viewModel.performEditorShiftTab()
+                                    "Enter" -> viewModel.performEditorEnter()
+                                    "Undo" -> viewModel.applyUndo()
+                                    "Redo" -> viewModel.applyRedo()
                                 }
                             }
                             .padding(horizontal = 7.dp, vertical = 6.dp),
@@ -4026,7 +4536,7 @@ fun MeowProgrammingKeyboard(
                     Box(
                         modifier = Modifier
                             .background(theme.bg, RoundedCornerShape(4.dp))
-                            .clickable { viewModel.selectKeyboardSuggestion(sym) }
+                            .clickable { viewModel.insertSymbol(sym) }
                             .padding(horizontal = 9.dp, vertical = 6.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -4051,7 +4561,7 @@ fun MeowProgrammingKeyboard(
                                     .weight(1f)
                                     .background(theme.bg, RoundedCornerShape(4.dp))
                                     .border(0.5.dp, theme.border)
-                                    .clickable { viewModel.selectKeyboardSuggestion(key) }
+                                    .clickable { viewModel.insertSymbol(key) }
                                     .padding(vertical = 8.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -4093,7 +4603,7 @@ fun MeowProgrammingKeyboard(
                     .clip(RoundedCornerShape(4.dp))
                     .background(theme.cardBg)
                     .border(0.5.dp, theme.border, RoundedCornerShape(4.dp))
-                    .clickable { viewModel.selectKeyboardSuggestion(" ") },
+                    .clickable { viewModel.insertSymbol(" ") },
                 contentAlignment = Alignment.Center
             ) {
                 Row(
@@ -4101,7 +4611,7 @@ fun MeowProgrammingKeyboard(
                 ) {
                     Icon(Icons.Default.ArrowBack, contentDescription = null, tint = theme.textSecondary.copy(alpha = 0.3f), modifier = Modifier.size(10.dp))
                     Text(
-                        "DRAG SPACEBAR TO NAVIGATE",
+                        "SPACE / NAVIGATE",
                         fontSize = 8.5.sp,
                         color = theme.textSecondary,
                         fontWeight = FontWeight.Bold,
@@ -4121,7 +4631,12 @@ fun MeowProgrammingKeyboard(
                             .size(24.dp)
                             .background(theme.cardBg, RoundedCornerShape(4.dp))
                             .clickable {
-                                viewModel.selectKeyboardSuggestion("")
+                                when (symbol) {
+                                    "◀" -> viewModel.moveCursor(-1)
+                                    "▶" -> viewModel.moveCursor(1)
+                                    "▲" -> viewModel.moveCursor(-24)
+                                    "▼" -> viewModel.moveCursor(24)
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {

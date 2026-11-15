@@ -1,16 +1,32 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.*
+import com.example.agent.AgentExecutionState
+import com.example.agent.MeowAiAgent
+import com.example.agent.PendingAgentConfirmation
+import com.example.agent.WorkspaceToolExecutor
+import com.example.api.AiProviderConfig
+import com.example.api.AiStreamEvent
+import com.example.api.ApiProtocol
+import com.example.api.ConnectionTestResult
 import com.example.api.GeminiClient
+import com.example.api.ModelDiscoveryResult
+import com.example.data.*
+import com.example.editor.CursorPosition
+import com.example.editor.EditorController
+import com.example.editor.EditorLanguage
+import com.example.editor.LanguageRegistry
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.Stack
 
 data class TestSuiteItem(val id: String, val name: String, val status: String, val timeMs: Long)
 
@@ -98,6 +114,18 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     private val _currentEditorContent = MutableStateFlow("")
     val currentEditorContent: StateFlow<String> = _currentEditorContent.asStateFlow()
 
+    // --- Selection-Aware Code Editor State ---
+    val editorController = EditorController()
+
+    private val _editorTextFieldValue = MutableStateFlow(TextFieldValue(""))
+    val editorTextFieldValue: StateFlow<TextFieldValue> = _editorTextFieldValue.asStateFlow()
+
+    private val _activeEditorLanguage = MutableStateFlow(EditorLanguage.PLAIN_TEXT)
+    val activeEditorLanguage: StateFlow<EditorLanguage> = _activeEditorLanguage.asStateFlow()
+
+    private val _cursorPosition = MutableStateFlow(CursorPosition(1, 1, 1))
+    val cursorPosition: StateFlow<CursorPosition> = _cursorPosition.asStateFlow()
+
     private val _activePanel = MutableStateFlow("explorer") // explorer, search, git, extensions, ai, vps, settings
     val activePanel: StateFlow<String> = _activePanel.asStateFlow()
 
@@ -111,10 +139,6 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     private val _mascotExpression = MutableStateFlow("Coding 😼")
     val mascotExpression: StateFlow<String> = _mascotExpression.asStateFlow()
 
-    // Editor Undo/Redo Stacks
-    private val undoStack = Stack<String>()
-    private val redoStack = Stack<String>()
-
     // Global Search states
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -122,19 +146,43 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     private val _searchReplaceText = MutableStateFlow("")
     val searchReplaceText: StateFlow<String> = _searchReplaceText.asStateFlow()
 
+    // --- Custom AI Provider & MotAPI Configuration State ---
+    private val _aiProviderConfig = MutableStateFlow(AiProviderConfig.motApiPreset())
+    val aiProviderConfig: StateFlow<AiProviderConfig> = _aiProviderConfig.asStateFlow()
+
+    private val _discoveredModels = MutableStateFlow<List<String>>(
+        listOf("claude-sonnet-5-5", "claude-3-7-sonnet", "gpt-4o", "gemini-2.5-flash")
+    )
+    val discoveredModels: StateFlow<List<String>> = _discoveredModels.asStateFlow()
+
+    private val _modelDiscoveryResult = MutableStateFlow<ModelDiscoveryResult?>(null)
+    val modelDiscoveryResult: StateFlow<ModelDiscoveryResult?> = _modelDiscoveryResult.asStateFlow()
+
+    private val _connectionTestResult = MutableStateFlow<ConnectionTestResult?>(null)
+    val connectionTestResult: StateFlow<ConnectionTestResult?> = _connectionTestResult.asStateFlow()
+
+    private val _isTestingConnection = MutableStateFlow(false)
+    val isTestingConnection: StateFlow<Boolean> = _isTestingConnection.asStateFlow()
+
+    private val _isFetchingModels = MutableStateFlow(false)
+    val isFetchingModels: StateFlow<Boolean> = _isFetchingModels.asStateFlow()
+
+    private val _apiSettingsStatusMessage = MutableStateFlow<String?>(null)
+    val apiSettingsStatusMessage: StateFlow<String?> = _apiSettingsStatusMessage.asStateFlow()
+
     // AI Assistant states
     private val _aiChatHistory = MutableStateFlow<List<ChatMessage>>(listOf(
-        ChatMessage("assistant", "🍞 Hello! I am AmiCoder, your AI Programming companion. Ask me to write code, create scripts, review errors, or search your workspace!")
+        ChatMessage("assistant", "🍞 Hello! I am AmiCoder, your AI Programming companion powered by MotAPI (claude-sonnet-5-5) & multi-protocol AI. Ask me to write code, create scripts, review errors, or run the Autonomous Agent!")
     ))
     val aiChatHistory: StateFlow<List<ChatMessage>> = _aiChatHistory.asStateFlow()
 
-    private val _aiApiUrl = MutableStateFlow("")
+    private val _aiApiUrl = MutableStateFlow("https://motapis.com/v1")
     val aiApiUrl: StateFlow<String> = _aiApiUrl.asStateFlow()
 
     private val _aiApiKey = MutableStateFlow("")
     val aiApiKey: StateFlow<String> = _aiApiKey.asStateFlow()
 
-    private val _aiModel = MutableStateFlow("gemini-3.5-flash")
+    private val _aiModel = MutableStateFlow("claude-sonnet-5-5")
     val aiModel: StateFlow<String> = _aiModel.asStateFlow()
 
     private val _aiIsGenerating = MutableStateFlow(false)
@@ -142,15 +190,75 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
         .map { if (it) "Thinking... 🐾" else "" }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "")
 
+    private var activeAiChatJob: Job? = null
+
     // Agent Mode & Inline AI States
     private val _isAgentRunning = MutableStateFlow(false)
     val isAgentRunning: StateFlow<Boolean> = _isAgentRunning.asStateFlow()
+
+    private val _agentExecutionState = MutableStateFlow(AgentExecutionState.IDLE)
+    val agentExecutionState: StateFlow<AgentExecutionState> = _agentExecutionState.asStateFlow()
+
+    private val _pendingAgentConfirmation = MutableStateFlow<PendingAgentConfirmation?>(null)
+    val pendingAgentConfirmation: StateFlow<PendingAgentConfirmation?> = _pendingAgentConfirmation.asStateFlow()
+
+    private var confirmationDeferred: CompletableDeferred<Boolean>? = null
+    private var activeAgentJob: Job? = null
+
+    @Volatile
+    private var isAgentPausedFlag: Boolean = false
+
+    @Volatile
+    private var isAgentStopRequestedFlag: Boolean = false
 
     private val _agentConsoleLogs = MutableStateFlow<List<String>>(listOf("[INIT] AmiCoder Autonomous Agent standby. Ready to engineer!"))
     val agentConsoleLogs: StateFlow<List<String>> = _agentConsoleLogs.asStateFlow()
 
     private val _inlineEditIsGenerating = MutableStateFlow(false)
     val inlineEditIsGenerating: StateFlow<Boolean> = _inlineEditIsGenerating.asStateFlow()
+
+    private val workspaceRootDir = File(application.filesDir, "workspace").apply { mkdirs() }
+
+    val workspaceToolExecutor = WorkspaceToolExecutor(
+        repository = repository,
+        workspaceRootDir = workspaceRootDir,
+        filesSnapshotProvider = { workspaceFiles.value },
+        activeFileProvider = {
+            val path = _selectedPath.value
+            workspaceFiles.value.firstOrNull { it.path == path }
+        },
+        activeCursorLineProvider = { _cursorPosition.value.line }
+    )
+
+    private val meowAiAgent = MeowAiAgent(
+        toolExecutor = workspaceToolExecutor,
+        logWriter = { entry ->
+            val tag = when (entry.actionType) {
+                "THOUGHT" -> "[PLANNER]"
+                "TOOL_CALL" -> "[SCANNER]"
+                "FILE_EDIT" -> "[WRITER]"
+                "VERIFY" -> if (entry.status == "FAILED") "[ERROR]" else "[AGENT]"
+                else -> "[AGENT]"
+            }
+            _agentConsoleLogs.value = _agentConsoleLogs.value + "$tag ${entry.description}"
+        },
+        onFileModified = { modifiedPath ->
+            withContext(Dispatchers.Main) {
+                selectFile(modifiedPath)
+            }
+        },
+        isPausedProvider = { isAgentPausedFlag },
+        isStopRequestedProvider = { isAgentStopRequestedFlag },
+        onRequireConfirmation = { pending ->
+            val deferred = CompletableDeferred<Boolean>()
+            confirmationDeferred = deferred
+            _pendingAgentConfirmation.value = pending
+            val result = deferred.await()
+            _pendingAgentConfirmation.value = null
+            confirmationDeferred = null
+            result
+        }
+    )
 
     // Terminals
     private val _terminalTabs = MutableStateFlow(listOf("Bash Terminal 🐾", "Python Console 🐍", "Node Runtime ⚡"))
@@ -176,11 +284,13 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
     init {
         viewModelScope.launch {
             repository.seedInitialData()
-            
-            // Read saved settings
-            _aiApiUrl.value = repository.getSetting("ai_api_url") ?: ""
-            _aiApiKey.value = repository.getSetting("ai_api_key") ?: ""
-            _aiModel.value = repository.getSetting("ai_model") ?: "gemini-3.5-flash"
+
+            // Load persisted custom AI provider config (defaults to MotAPI + claude-sonnet-5-5)
+            val loadedConfig = repository.loadAiProviderConfig()
+            _aiProviderConfig.value = loadedConfig
+            _aiApiUrl.value = loadedConfig.baseUrl
+            _aiApiKey.value = loadedConfig.apiKey
+            _aiModel.value = loadedConfig.modelId
 
             _isAntigravityHudEnabled.value = (repository.getSetting("vip_antigravity_hud") == "true")
 
@@ -227,17 +337,23 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
 
             _selectedPath.value = path
             _currentEditorContent.value = file.content
-            
+            val detectedLang = LanguageRegistry.detectLanguage(file.path, file.content)
+            _activeEditorLanguage.value = detectedLang
+
+            val initialVal = TextFieldValue(
+                text = file.content,
+                selection = TextRange(file.content.length.coerceAtLeast(0))
+            )
+            _editorTextFieldValue.value = initialVal
+            editorController.resetHistory(initialVal)
+            _cursorPosition.value = editorController.calculateCursorPosition(initialVal)
+
             // Manage Tab list
             val tabs = _openTabs.value.toMutableList()
             if (!tabs.contains(path)) {
                 tabs.add(path)
                 _openTabs.value = tabs
             }
-            
-            // Clear undo stacks for this file
-            undoStack.clear()
-            redoStack.clear()
         }
     }
 
@@ -252,104 +368,125 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
             } else {
                 _selectedPath.value = null
                 _currentEditorContent.value = ""
+                _editorTextFieldValue.value = TextFieldValue("")
+                _cursorPosition.value = CursorPosition(1, 1, 1)
             }
         }
     }
 
     private var autoSaveJob: kotlinx.coroutines.Job? = null
 
-    fun updateEditorContent(newContent: String) {
-        val current = _currentEditorContent.value
-        if (current != newContent) {
-            var rawContent = newContent
-            
-            // Smart auto-indent on new line (Enter key)
-            if (newContent.length == current.length + 1) {
-                var diffIndex = -1
-                for (i in 0 until current.length) {
-                    if (current[i] != newContent[i]) {
-                        diffIndex = i
-                        break
-                    }
-                }
-                if (diffIndex == -1) {
-                    diffIndex = current.length
-                }
-                
-                if (diffIndex >= 0 && diffIndex < newContent.length && newContent[diffIndex] == '\n') {
-                    val precedingText = current.substring(0, diffIndex)
-                    val lastNewLine = precedingText.lastIndexOf('\n')
-                    val lineStart = if (lastNewLine == -1) 0 else lastNewLine + 1
-                    val precedingLine = precedingText.substring(lineStart)
-                    
-                    val leadingWhitespace = precedingLine.takeWhile { it == ' ' || it == '\t' }
-                    var extraIndent = ""
-                    val trimmed = precedingLine.trimEnd()
-                    if (trimmed.endsWith("{") || trimmed.endsWith(":") || trimmed.endsWith("(") || trimmed.endsWith("[")) {
-                        extraIndent = "    "
-                    }
-                    
-                    val indent = leadingWhitespace + extraIndent
-                    if (indent.isNotEmpty()) {
-                        rawContent = newContent.substring(0, diffIndex + 1) + indent + newContent.substring(diffIndex + 1)
-                    }
-                }
-            }
+    /**
+     * Selection-aware and language-aware editor input handler for `BasicTextField(value: TextFieldValue, ...)`.
+     */
+    fun onEditorTextFieldValueChange(newValue: TextFieldValue) {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, newValue.text)
+        _activeEditorLanguage.value = language
 
-            undoStack.push(current)
-            if (undoStack.size > 50) undoStack.removeAt(0)
-            redoStack.clear()
-            _currentEditorContent.value = rawContent
-            
-            // Debounce DB saves to optimize CPU/RAM overhead and prevent InputDispatcher crashes
-            autoSaveJob?.cancel()
-            autoSaveJob = viewModelScope.launch {
-                kotlinx.coroutines.delay(1000)
-                val path = _selectedPath.value ?: return@launch
-                val file = workspaceFiles.value.find { it.path == path } ?: return@launch
-                repository.saveFile(path, file.name, file.parentPath, false, rawContent)
-                
-                // Add to live local history backups
-                val historyList = _localHistory.value[path]?.toMutableList() ?: mutableListOf()
-                if (historyList.isEmpty() || historyList.last().second != rawContent) {
-                    historyList.add(Pair(System.currentTimeMillis(), rawContent))
-                    if (historyList.size > 20) historyList.removeAt(0)
-                    val updatedMap = _localHistory.value.toMutableMap()
-                    updatedMap[path] = historyList
-                    _localHistory.value = updatedMap
-                }
+        val oldValue = _editorTextFieldValue.value
+        val processed = editorController.processValueChange(oldValue, newValue, language)
+
+        _editorTextFieldValue.value = processed
+        _currentEditorContent.value = processed.text
+        _cursorPosition.value = editorController.calculateCursorPosition(processed)
+
+        if (oldValue.text != processed.text) {
+            scheduleAutoSave(processed.text)
+        }
+    }
+
+    fun performEditorEnter() {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, _editorTextFieldValue.value.text)
+        val updated = editorController.performEnter(_editorTextFieldValue.value, language)
+        applyTransformedEditorValue(updated)
+    }
+
+    fun performEditorTab() {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, _editorTextFieldValue.value.text)
+        val updated = editorController.performTab(_editorTextFieldValue.value, language)
+        applyTransformedEditorValue(updated)
+    }
+
+    fun performEditorShiftTab() {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, _editorTextFieldValue.value.text)
+        val updated = editorController.performShiftTab(_editorTextFieldValue.value, language)
+        applyTransformedEditorValue(updated)
+    }
+
+    fun performEditorBackspace() {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, _editorTextFieldValue.value.text)
+        val updated = editorController.performBackspace(_editorTextFieldValue.value, language)
+        applyTransformedEditorValue(updated)
+    }
+
+    fun insertSymbol(symbol: String) {
+        val path = _selectedPath.value ?: ""
+        val language = LanguageRegistry.detectLanguage(path, _editorTextFieldValue.value.text)
+        val updated = editorController.performInsertSymbol(_editorTextFieldValue.value, symbol, language)
+        applyTransformedEditorValue(updated)
+    }
+
+    fun moveCursor(delta: Int) {
+        val updated = editorController.moveCursor(_editorTextFieldValue.value, delta)
+        _editorTextFieldValue.value = updated
+        _cursorPosition.value = editorController.calculateCursorPosition(updated)
+    }
+
+    private fun applyTransformedEditorValue(updated: TextFieldValue) {
+        _editorTextFieldValue.value = updated
+        _currentEditorContent.value = updated.text
+        _cursorPosition.value = editorController.calculateCursorPosition(updated)
+        scheduleAutoSave(updated.text)
+    }
+
+    fun updateEditorContent(newContent: String) {
+        val currentVal = _editorTextFieldValue.value
+        if (currentVal.text != newContent) {
+            val newSelection = TextRange(currentVal.selection.start.coerceIn(0, newContent.length))
+            val nextVal = TextFieldValue(text = newContent, selection = newSelection)
+            onEditorTextFieldValueChange(nextVal)
+        }
+    }
+
+    private fun scheduleAutoSave(rawContent: String) {
+        autoSaveJob?.cancel()
+        autoSaveJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(500)
+            val path = _selectedPath.value ?: return@launch
+            val file = workspaceFiles.value.find { it.path == path } ?: return@launch
+            repository.saveFile(path, file.name, file.parentPath, false, rawContent)
+
+            // Add to live local history backups
+            val historyList = _localHistory.value[path]?.toMutableList() ?: mutableListOf()
+            if (historyList.isEmpty() || historyList.last().second != rawContent) {
+                historyList.add(Pair(System.currentTimeMillis(), rawContent))
+                if (historyList.size > 20) historyList.removeAt(0)
+                val updatedMap = _localHistory.value.toMutableMap()
+                updatedMap[path] = historyList
+                _localHistory.value = updatedMap
             }
         }
     }
 
     fun applyUndo() {
-        if (undoStack.isNotEmpty()) {
-            val state = undoStack.pop()
-            redoStack.push(_currentEditorContent.value)
-            _currentEditorContent.value = state
-            
-            autoSaveJob?.cancel()
-            viewModelScope.launch {
-                val path = _selectedPath.value ?: return@launch
-                val file = workspaceFiles.value.find { it.path == path } ?: return@launch
-                repository.saveFile(path, file.name, file.parentPath, false, state)
-            }
-        }
+        val previous = editorController.undo(_editorTextFieldValue.value) ?: return
+        _editorTextFieldValue.value = previous
+        _currentEditorContent.value = previous.text
+        _cursorPosition.value = editorController.calculateCursorPosition(previous)
+        scheduleAutoSave(previous.text)
     }
 
     fun applyRedo() {
-        if (redoStack.isNotEmpty()) {
-            val state = redoStack.pop()
-            undoStack.push(_currentEditorContent.value)
-            _currentEditorContent.value = state
-
-            autoSaveJob?.cancel()
-            viewModelScope.launch {
-                val path = _selectedPath.value ?: return@launch
-                val file = workspaceFiles.value.find { it.path == path } ?: return@launch
-                repository.saveFile(path, file.name, file.parentPath, false, state)
-            }
-        }
+        val next = editorController.redo() ?: return
+        _editorTextFieldValue.value = next
+        _currentEditorContent.value = next.text
+        _cursorPosition.value = editorController.calculateCursorPosition(next)
+        scheduleAutoSave(next.text)
     }
 
     fun createFile(name: String, isFolder: Boolean) {
@@ -617,55 +754,199 @@ class MeowCodeViewModel(application: Application) : AndroidViewModel(application
         submitTerminalCommand(runCmd)
     }
 
-    // --- AI Assistant Prompting ---
-    fun updateAiSettings(url: String, key: String, model: String) {
-        _aiApiUrl.value = url
-        _aiApiKey.value = key
-        _aiModel.value = model
+    // --- AI Provider Configuration & Diagnostics ---
+    fun updateAiProviderConfig(config: AiProviderConfig) {
+        _aiProviderConfig.value = config
+        _aiApiUrl.value = config.baseUrl
+        _aiApiKey.value = config.apiKey
+        _aiModel.value = config.modelId
+    }
 
+    fun saveAiProviderConfiguration(config: AiProviderConfig = _aiProviderConfig.value) {
+        _aiProviderConfig.value = config
+        _aiApiUrl.value = config.baseUrl
+        _aiApiKey.value = config.apiKey
+        _aiModel.value = config.modelId
         viewModelScope.launch {
-            repository.updateSetting("ai_api_url", url)
-            repository.updateSetting("ai_api_key", key)
-            repository.updateSetting("ai_model", model)
+            repository.saveAiProviderConfig(config)
+            _apiSettingsStatusMessage.value = "Saved ${config.providerName} (${config.modelId}) configuration."
         }
+    }
+
+    fun updateAiSettings(url: String, key: String, model: String) {
+        val current = _aiProviderConfig.value
+        val updated = current.copy(
+            baseUrl = url.trim().ifEmpty { current.protocol.defaultBaseUrl },
+            apiKey = key.trim(),
+            modelId = model.trim().ifEmpty { current.protocol.defaultModelId }
+        )
+        saveAiProviderConfiguration(updated)
+    }
+
+    fun applyMotApiPreset() {
+        val preset = AiProviderConfig.motApiPreset(apiKey = _aiProviderConfig.value.apiKey)
+        saveAiProviderConfiguration(preset)
+        _apiSettingsStatusMessage.value = "Loaded MotAPI preset (https://motapis.com/v1 • claude-sonnet-5-5)."
+    }
+
+    fun applyGeminiPreset() {
+        val preset = AiProviderConfig.geminiPreset(apiKey = _aiProviderConfig.value.apiKey)
+        saveAiProviderConfiguration(preset)
+        _apiSettingsStatusMessage.value = "Loaded Google Gemini preset (gemini-2.5-flash)."
+    }
+
+    fun applyAnthropicPreset() {
+        val preset = AiProviderConfig.anthropicPreset(apiKey = _aiProviderConfig.value.apiKey)
+        saveAiProviderConfiguration(preset)
+        _apiSettingsStatusMessage.value = "Loaded Anthropic Messages preset (claude-sonnet-5-5)."
+    }
+
+    fun resetAiProviderConfiguration() {
+        val preset = AiProviderConfig.motApiPreset(apiKey = "")
+        _connectionTestResult.value = null
+        _modelDiscoveryResult.value = null
+        saveAiProviderConfiguration(preset)
+        _apiSettingsStatusMessage.value = "Reset to default MotAPI configuration."
+    }
+
+    fun clearAiApiKey() {
+        val cleared = _aiProviderConfig.value.copy(apiKey = "")
+        saveAiProviderConfiguration(cleared)
+        _apiSettingsStatusMessage.value = "Cleared API key."
+    }
+
+    fun testAiConnection() {
+        if (_isTestingConnection.value) return
+        _isTestingConnection.value = true
+        _connectionTestResult.value = null
+        val config = _aiProviderConfig.value
+        viewModelScope.launch {
+            repository.saveAiProviderConfig(config)
+            val result = GeminiClient.testConnection(config)
+            _connectionTestResult.value = result
+            _apiSettingsStatusMessage.value = result.message
+            _isTestingConnection.value = false
+        }
+    }
+
+    fun fetchAvailableModels() {
+        if (_isFetchingModels.value) return
+        _isFetchingModels.value = true
+        _modelDiscoveryResult.value = null
+        val config = _aiProviderConfig.value
+        viewModelScope.launch {
+            repository.saveAiProviderConfig(config)
+            val result = GeminiClient.fetchModels(config)
+            _modelDiscoveryResult.value = result
+            if (result.models.isNotEmpty()) {
+                _discoveredModels.value = result.models
+            }
+            _apiSettingsStatusMessage.value = result.statusMessage
+            _isFetchingModels.value = false
+        }
+    }
+
+    fun selectDiscoveredModel(modelId: String) {
+        val updated = _aiProviderConfig.value.copy(modelId = modelId)
+        saveAiProviderConfiguration(updated)
+    }
+
+    fun stopAiGeneration() {
+        activeAiChatJob?.cancel()
+        activeAiChatJob = null
+        _aiIsGenerating.value = false
     }
 
     fun sendAiPrompt(prompt: String) {
         if (prompt.trim().isEmpty() || _aiIsGenerating.value) return
 
-        // Create a completely new list so StateFlow triggers an immediate emission
+        val config = _aiProviderConfig.value
         _aiChatHistory.value = _aiChatHistory.value + ChatMessage("user", prompt)
         _aiIsGenerating.value = true
 
-        viewModelScope.launch {
-            // Gather workspace text files to supply in system instruction context
+        activeAiChatJob = viewModelScope.launch {
             val filesContext = withContext(Dispatchers.IO) {
                 workspaceFiles.value
-                    .filter { !it.isDirectory && it.content.length < 5000 }
-                    .take(5)
+                    .filter { !it.isDirectory && it.content.length < 6000 }
+                    .take(6)
                     .joinToString("\n\n") { "File Path: ${it.path}\nContent:\n${it.content}" }
             }
 
-            val systemInstruction = """You are MeowCoder, a powerful and clever coding assistant integrated inside Meow Code Android IDE.
-You are talkative and love cat puns. The user's active edited file is: ${_selectedPath.value ?: "None"}.
-The contents of their workspace files is:
+            val activePath = _selectedPath.value ?: "None"
+            val cursor = _cursorPosition.value
+            val systemInstruction = """You are AmiCoder, an expert software engineering assistant integrated inside the Meow Code Android IDE.
+Provider: ${config.providerName} (${config.modelId}).
+Active Editor File: $activePath (Cursor at Line ${cursor.line}, Column ${cursor.column}, Language: ${_activeEditorLanguage.value.displayName}).
+Workspace files context:
 $filesContext"""
 
-            val response = GeminiClient.generateContent(
-                prompt = prompt,
-                customUrl = _aiApiUrl.value,
-                customKey = _aiApiKey.value,
-                customModel = _aiModel.value,
-                systemInstruction = systemInstruction
-            )
+            // Append placeholder assistant message for live streaming updates
+            val assistantMsgIndex = _aiChatHistory.value.size
+            _aiChatHistory.value = _aiChatHistory.value + ChatMessage("assistant", "...")
 
-            _aiChatHistory.value = _aiChatHistory.value + ChatMessage("assistant", response)
-            _aiIsGenerating.value = false
+            try {
+                GeminiClient.streamWithConfig(
+                    config = config,
+                    prompt = prompt,
+                    systemInstruction = systemInstruction
+                ).collect { event ->
+                    when (event) {
+                        is AiStreamEvent.Delta -> {
+                            val currentList = _aiChatHistory.value.toMutableList()
+                            if (assistantMsgIndex in currentList.indices) {
+                                currentList[assistantMsgIndex] = ChatMessage("assistant", event.accumulated)
+                                _aiChatHistory.value = currentList
+                            }
+                        }
+                        is AiStreamEvent.Complete -> {
+                            val currentList = _aiChatHistory.value.toMutableList()
+                            if (assistantMsgIndex in currentList.indices) {
+                                currentList[assistantMsgIndex] = ChatMessage("assistant", event.fullText)
+                                _aiChatHistory.value = currentList
+                            }
+                        }
+                        is AiStreamEvent.Error -> {
+                            val currentList = _aiChatHistory.value.toMutableList()
+                            val errorMsg = "❌ ${event.errorMessage}"
+                            if (assistantMsgIndex in currentList.indices) {
+                                currentList[assistantMsgIndex] = ChatMessage("assistant", errorMsg)
+                                _aiChatHistory.value = currentList
+                            } else {
+                                _aiChatHistory.value = _aiChatHistory.value + ChatMessage("assistant", errorMsg)
+                            }
+                        }
+                    }
+                }
+            } finally {
+                _aiIsGenerating.value = false
+            }
         }
     }
 
+    fun explainActiveFileWithAi() {
+        val path = _selectedPath.value
+        val content = _currentEditorContent.value
+        if (path.isNullOrBlank() || content.isBlank()) {
+            sendAiPrompt("List the files in my workspace and suggest improvements.")
+        } else {
+            sendAiPrompt("Explain the architecture and key functions in `$path`, and point out any potential bugs or improvements.")
+        }
+    }
+
+    fun analyzeCurrentErrorsWithAi() {
+        val path = _selectedPath.value ?: "api.py"
+        val content = _currentEditorContent.value
+        val diag = workspaceToolExecutor.analyzeSyntaxDiagnostics(path, content)
+        sendAiPrompt("Analyze `$path` for syntax or logic errors (Local diagnostics: $diag) and provide the corrected code.")
+    }
+
     fun applyAiCodeToEditor(code: String) {
-        updateEditorContent(code)
+        val fullRangeVal = TextFieldValue(
+            text = code,
+            selection = TextRange(code.length.coerceAtLeast(0))
+        )
+        editorController.recordSnapshot(fullRangeVal)
+        applyTransformedEditorValue(fullRangeVal)
     }
 
     fun executeInlineEdit(instruction: String, onComplete: (String) -> Unit) {
@@ -675,166 +956,119 @@ $filesContext"""
             return
         }
         val fileContent = _currentEditorContent.value
+        val config = _aiProviderConfig.value
         _inlineEditIsGenerating.value = true
 
         viewModelScope.launch {
-            val systemInstruction = """You are AmiCoder, an inline automated code editing assistant inside an Android IDE. 
+            val systemInstruction = """You are AmiCoder, an inline automated code editing assistant inside the Meow Code Android IDE.
 Your task is to modify the provided source code according to the instruction specified by the user.
-You MUST output ONLY the direct, fully updated complete code of the file. 
+You MUST output ONLY the direct, fully updated complete code of the file.
 DO NOT write any explanation, markdown formatting, or code fences (like ```kotlin). Just plain text containing only the updated source code."""
 
-            val prompt = "User instruction: $instruction\n\nOriginal file: $path\nContent:\n$fileContent"
+            val cursor = _cursorPosition.value
+            val prompt = "User instruction: $instruction\nCursor position: Line ${cursor.line}, Column ${cursor.column}\nOriginal file: $path\nContent:\n$fileContent"
 
-            val response = GeminiClient.generateContent(
+            val result = GeminiClient.generateWithConfig(
+                config = config,
                 prompt = prompt,
-                customUrl = _aiApiUrl.value,
-                customKey = _aiApiKey.value,
-                customModel = _aiModel.value,
                 systemInstruction = systemInstruction
             )
 
-            // Clean up code block fences if any slipped through
-            var cleanedCode = response.trim()
-            if (cleanedCode.startsWith("```")) {
-                val lines = cleanedCode.lines()
-                if (lines.size >= 2) {
-                    val firstLine = lines.first()
-                    val lastLine = lines.last()
-                    if (firstLine.startsWith("```") && lastLine.startsWith("```")) {
-                        cleanedCode = lines.drop(1).dropLast(1).joinToString("\n")
+            result.fold(
+                onSuccess = { response ->
+                    var cleanedCode = response.trim()
+                    if (cleanedCode.startsWith("```")) {
+                        val lines = cleanedCode.lines()
+                        if (lines.size >= 2) {
+                            val firstLine = lines.first()
+                            val lastLine = lines.last()
+                            if (firstLine.startsWith("```") && lastLine.startsWith("```")) {
+                                cleanedCode = lines.drop(1).dropLast(1).joinToString("\n")
+                            }
+                        }
                     }
-                }
-            }
 
-            if (cleanedCode.isNotEmpty() && !cleanedCode.startsWith("Error:")) {
-                updateEditorContent(cleanedCode)
-                onComplete("AI direct edit successfully applied!")
-            } else {
-                onComplete("Failed to apply AI edit: $cleanedCode")
-            }
+                    if (cleanedCode.isNotEmpty()) {
+                        applyAiCodeToEditor(cleanedCode)
+                        onComplete("AI direct edit applied via ${config.providerName} (${config.modelId})!")
+                    } else {
+                        onComplete("AI returned empty code output.")
+                    }
+                },
+                onFailure = { err ->
+                    onComplete("Inline Edit failed: ${err.message}")
+                }
+            )
             _inlineEditIsGenerating.value = false
         }
     }
 
     fun executeAgentAutonomousTask(goal: String) {
         if (goal.trim().isEmpty() || _isAgentRunning.value) return
+        isAgentPausedFlag = false
+        isAgentStopRequestedFlag = false
         _isAgentRunning.value = true
         _agentConsoleLogs.value = listOf(
-            "[AGENT] Starting AmiCoder Autonomous Developer Agent core...",
-            "[PLANNER] Processing high-level user goal: \"$goal\"",
-            "[SCANNER] Scanning workspace directory structure and database context..."
+            "[AGENT] Starting AmiCoder Autonomous Developer Agent (${_aiProviderConfig.value.providerName} • ${_aiProviderConfig.value.modelId})...",
+            "[PLANNER] Goal: \"$goal\""
         )
 
-        viewModelScope.launch {
-            // Gather workspace text files to supply in system instruction context
-            val filesList = workspaceFiles.value
-            val filesContext = withContext(Dispatchers.IO) {
-                filesList
-                    .filter { !it.isDirectory && it.content.length < 3000 }
-                    .take(5)
-                    .joinToString("\n\n") { "File Path: ${it.path}\nContent:\n${it.content}" }
-            }
-
-            _agentConsoleLogs.value = _agentConsoleLogs.value + "[SCANNER] Found ${filesList.size} files/folders in workspace."
-            _agentConsoleLogs.value = _agentConsoleLogs.value + "[CODER] Planning actions and generating code securely via Gemini 3.5..."
-
-            val systemInstruction = """You are AmiCoder Autonomous Agent, an advanced software engineer capable of writing, designing and maintaining software files autonomously inside a virtual workspace IDE.
-Your task is to analyze the user's high-level goal, plan the specific file operations, write the code, and return a clean JSON payload.
-The current files in the workspace are:
-$filesContext
-
-You MUST return a valid, parsable JSON object of the following structure:
-{
-  "logs": [
-     "Sequential concise sentences of what files you are creating, what code logic you implemented, and why."
-  ],
-  "files": [
-     {
-        "name": "example_file.py",
-        "path": "example_file.py",
-        "content": "The complete, production-grade text/source code content of the file."
-     }
-  ]
-}
-
-Return ONLY this JSON block. DO NOT wrap with ```json or any markdown fences. If you cannot fulfill the request, return a json log with instructions why."""
-
-            val response = GeminiClient.generateContent(
-                prompt = goal,
-                customUrl = _aiApiUrl.value,
-                customKey = _aiApiKey.value,
-                customModel = _aiModel.value,
-                systemInstruction = systemInstruction
-            )
-
-            var cleaned = response.trim()
-            if (cleaned.startsWith("```")) {
-                cleaned = cleaned.removePrefix("```json").removePrefix("```xml").removePrefix("```").trim()
-                if (cleaned.endsWith("```")) {
-                    cleaned = cleaned.removeSuffix("```").trim()
-                }
-            }
-
+        activeAgentJob = viewModelScope.launch {
             try {
-                _agentConsoleLogs.value = _agentConsoleLogs.value + "[PARSER] Analysing structural JSON response cargo..."
-                val json = org.json.JSONObject(cleaned)
-                
-                // Read and stream logs
-                val logsArr = json.optJSONArray("logs")
-                if (logsArr != null && logsArr.length() > 0) {
-                    for (i in 0 until logsArr.length()) {
-                        _agentConsoleLogs.value = _agentConsoleLogs.value + "[TASK] ${logsArr.getString(i)}"
-                        kotlinx.coroutines.delay(200)
+                meowAiAgent.executeAutonomousRun(
+                    goal = goal,
+                    config = _aiProviderConfig.value,
+                    onStateChange = { state ->
+                        _agentExecutionState.value = state
+                        _isAgentRunning.value = (
+                            state == AgentExecutionState.RUNNING ||
+                                state == AgentExecutionState.PAUSED ||
+                                state == AgentExecutionState.AWAITING_CONFIRMATION
+                            )
                     }
-                }
-
-                // Create or Modify files
-                val filesArr = json.optJSONArray("files")
-                if (filesArr != null && filesArr.length() > 0) {
-                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[WRITER] Writing autonomous file updates directly..."
-                    for (i in 0 until filesArr.length()) {
-                        val fileObj = filesArr.getJSONObject(i)
-                        val name = fileObj.getString("name")
-                        val path = fileObj.optString("path", name)
-                        val content = fileObj.getString("content")
-
-                        _agentConsoleLogs.value = _agentConsoleLogs.value + "[WRITER] Writing file '${path}' with ${content.length} characters..."
-                        
-                        // Save file to database/workspace
-                        var parentPath = ""
-                        val slIdx = path.lastIndexOf('/')
-                        if (slIdx != -1) {
-                            parentPath = path.substring(0, slIdx)
-                        }
-
-                        repository.saveFile(path, name, parentPath, false, content)
-                        kotlinx.coroutines.delay(200)
-
-                        // Auto-select the updated files
-                        selectFile(path)
-                    }
-                }
-
-                _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] SUCCESS! TASK SECURELY COMPLETED AUTONOMOUSLY. CHECK EXPLORER! 🚀"
-            } catch (e: Exception) {
-                _agentConsoleLogs.value = _agentConsoleLogs.value + "[ERROR] JSON parse failed: ${e.message}"
-                _agentConsoleLogs.value = _agentConsoleLogs.value + "[FALLBACK] Attempting heuristic code extraction and saver..."
-
-                // Smart heuristic parser: find any file-like output or generate a single python file based on goal
-                val fallbackFileName = if (goal.lowercase().contains("html")) "index.html" else "agent_script.py"
-                _agentConsoleLogs.value = _agentConsoleLogs.value + "[FALLBACK] Creating raw output fallback file '${fallbackFileName}'..."
-                
-                try {
-                    repository.saveFile(fallbackFileName, fallbackFileName, "", false, response)
-                    selectFile(fallbackFileName)
-                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] FALLBACK SUCCESS! Saved raw result in ${fallbackFileName}."
-                } catch (ex: Exception) {
-                    _agentConsoleLogs.value = _agentConsoleLogs.value + "[ERROR] Fallback save failed: ${ex.message}"
-                }
+                )
             } finally {
                 _isAgentRunning.value = false
             }
         }
+    }
+
+    fun pauseAgentExecution() {
+        if (_isAgentRunning.value) {
+            isAgentPausedFlag = true
+            _agentExecutionState.value = AgentExecutionState.PAUSED
+            _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] Agent paused by user."
+        }
+    }
+
+    fun resumeAgentExecution() {
+        if (isAgentPausedFlag) {
+            isAgentPausedFlag = false
+            _agentExecutionState.value = AgentExecutionState.RUNNING
+            _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] Agent resumed."
+        }
+    }
+
+    fun stopAgentExecution() {
+        isAgentStopRequestedFlag = true
+        isAgentPausedFlag = false
+        confirmationDeferred?.complete(false)
+        activeAgentJob?.cancel()
+        activeAgentJob = null
+        _isAgentRunning.value = false
+        _agentExecutionState.value = AgentExecutionState.STOPPED
+        _agentConsoleLogs.value = _agentConsoleLogs.value + "[AGENT] Agent stopped."
+    }
+
+    fun clearAgentLogs() {
+        _agentConsoleLogs.value = listOf("[INIT] Agent logs cleared. Ready for next autonomous task.")
+        if (!_isAgentRunning.value) {
+            _agentExecutionState.value = AgentExecutionState.IDLE
+        }
+    }
+
+    fun resolvePendingAgentConfirmation(approved: Boolean) {
+        confirmationDeferred?.complete(approved)
     }
 
     // --- Git Integration Actions ---
@@ -1467,8 +1701,8 @@ if __name__ == '__main__':
     }
 
     fun selectKeyboardSuggestion(suggestion: String) {
-        val current = _currentEditorContent.value
-        updateEditorContent(current + suggestion)
+        if (suggestion.isEmpty()) return
+        insertSymbol(suggestion)
     }
 
     fun triggerCloudSync() {
